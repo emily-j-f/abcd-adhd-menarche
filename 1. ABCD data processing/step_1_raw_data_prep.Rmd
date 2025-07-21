@@ -1,0 +1,151 @@
+---
+title: "ABCD ADHD menarche raw dataset preparation (step 1)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+
+```{r load libraries}
+library(tidyverse)
+library(dplyr)
+```
+
+## Make raw dataframe with all variables relevent to analyses
+
+### Read all relevant ABCD files
+
+```{r read abcd files}
+abcd_p_demo <- read_csv("ABCD files/abcd_p_demo.csv", show_col_types = FALSE)
+abcd_p_screen <- read_csv("ABCD files/abcd_p_screen.csv", show_col_types = FALSE)
+abcd_y_lt <- read_csv("ABCD files/abcd_y_lt.csv", show_col_types = FALSE)
+led_l_adi <- read_csv("ABCD files/led_l_adi.csv", show_col_types = FALSE)
+mh_p_cbcl <- read_csv("ABCD files/mh_p_cbcl.csv", show_col_types = FALSE)
+mh_p_ksads_ss <- read_csv("ABCD files/mh_p_ksads_ss.csv", show_col_types = FALSE)
+ph_p_meds <- read_csv("ABCD files/ph_p_meds.csv", show_col_types = FALSE)
+ph_p_pds <- read_csv("ABCD files/ph_p_pds.csv", show_col_types = FALSE)
+ph_y_pds <- read_csv("ABCD files/ph_y_pds.csv", show_col_types = FALSE)
+ph_y_anthro <- read_csv("ABCD files/ph_y_anthro.csv", show_col_types = FALSE)
+```
+### Check for parsing problems
+
+```{r check parsing problems}
+# Check for parsing problems
+datasets <- list(
+  abcd_p_demo = abcd_p_demo,
+  abcd_p_screen = abcd_p_screen,
+  abcd_y_lt = abcd_y_lt,
+  led_l_adi = led_l_adi,
+  mh_p_cbcl = mh_p_cbcl,
+  mh_p_ksads_ss = mh_p_ksads_ss,
+  ph_p_meds = ph_p_meds,
+  ph_p_pds = ph_p_pds,
+  ph_y_pds = ph_y_pds,
+  ph_y_anthro = ph_y_anthro
+)
+
+# Run problems() on each and print only if issues exist
+for (name in names(datasets)) {
+  dat <- datasets[[name]]
+  prob <- problems(dat)
+  
+  if (nrow(prob) > 0) {
+    cat("\nParsing issues in", name, ":\n")
+    
+    # Add column names to the problems dataframe
+    prob$col_name <- names(dat)[prob$col]
+    
+    # Print full problem details including column names
+    print(as.data.frame(prob))
+    
+    # Print unique columns affected
+    cat("\nColumns with parsing problems in", name, ":\n")
+    print(unique(prob$col_name))
+    
+  } else {
+    cat("\nNo parsing issues in", name, "\n")
+  }
+}
+```
+
+Note: No columns with parsing issues are relevant to our analyses
+
+### Select columns for all relevant variables from various ABCD files
+
+```{r select columns from abcd files}
+demo_select <- abcd_p_demo %>%
+  dplyr::select(src_subject_id, eventname, 
+         demo_sex_v2, demo_comb_income_v2_l, demo_comb_income_v2, 
+         demo_roster_v2_l, demo_roster_v2, race_ethnicity)
+
+pds_p_select <- ph_p_pds %>%
+  dplyr::select(src_subject_id, eventname,
+         pds_1_p, pds_2_p, pds_3_p, pds_f4_p, pds_f5b_p, pds_f6_p)
+
+pds_y_select <- ph_y_pds %>%
+  dplyr::select(src_subject_id, eventname,
+         pds_ht2_y, pds_skin2_y, pds_bdyhair_y, pds_f4_2_y, 
+         pds_f5_y, pds_f6_y)
+
+cbcl_select <- mh_p_cbcl %>%
+  dplyr::select(src_subject_id, eventname, 
+         cbcl_scr_syn_attention_r, cbcl_scr_syn_internal_r, 
+         cbcl_scr_syn_external_r,
+       )
+
+ksads_select <- mh_p_ksads_ss %>%
+  dplyr::select(src_subject_id, eventname, 
+         ksads_14_853_p,ksads_14_854_p,
+         ksads_14_856_p, ksads_14_855_p 
+      )
+
+anthro_select <- ph_y_anthro %>%
+  dplyr::select(src_subject_id, eventname, 
+         anthro_1_height_in, anthro2heightin, anthro3heightin, anthroheightcalc, 
+         anthroweight1lb, anthroweight2lb, anthroweight3lb, anthroweightcalc)
+
+lt_select <- abcd_y_lt %>%
+  dplyr::select(src_subject_id, eventname, 
+         rel_family_id, site_id_l, interview_age)
+
+led_l_adi <- led_l_adi %>%
+  dplyr::select(src_subject_id, eventname, reshist_addr1_adi_wsum)
+
+meds_select <- ph_p_meds %>%
+  dplyr::select(src_subject_id, eventname, 
+         med1_rxnorm_p, med2_rxnorm_p, med3_rxnorm_p, med4_rxnorm_p, med1_rxnorm_p,
+         med2_rxnorm_p, med3_rxnorm_p, med4_rxnorm_p, med5_rxnorm_p, med6_rxnorm_p,
+         med7_rxnorm_p, med8_rxnorm_p, med9_rxnorm_p, med10_rxnorm_p, med11_rxnorm_p, 
+         med12_rxnorm_p, med13_rxnorm_p, med14_rxnorm_p, med15_rxnorm_p)
+```
+
+### Join columns to make a data frame with all relevant variables
+
+```{r join selected columns}
+adhd_menarche_raw <- demo_select %>%
+  full_join(pds_p_select, by = c("src_subject_id", "eventname")) %>%
+  full_join(pds_y_select, by = c("src_subject_id", "eventname")) %>%
+  full_join(cbcl_select, by = c("src_subject_id", "eventname")) %>%
+  full_join(ksads_select, by = c("src_subject_id", "eventname")) %>%
+  full_join(anthro_select, by = c("src_subject_id", "eventname")) %>%
+  full_join(lt_select, by = c("src_subject_id", "eventname")) %>%
+  full_join(led_l_adi, by = c("src_subject_id", "eventname")) %>%
+  full_join(meds_select, by = c("src_subject_id", "eventname"))
+```
+
+### Check raw dataframe
+
+```{r head raw df}
+head(adhd_menarche_raw)
+```
+
+## Save raw dataframe
+
+```{r export raw df}
+write.csv(adhd_menarche_raw, "0_adhd_menarche_raw.csv", row.names = FALSE)
+```
