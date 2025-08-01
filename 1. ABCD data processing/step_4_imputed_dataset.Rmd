@@ -1,0 +1,206 @@
+---
+title: "ABCD ADHD menarche imputed dataset"
+format: html
+editor: visual
+---
+
+## Load libraries
+
+```{r Load Libraries}
+# load libraries
+library(tidyverse)
+library(knitr)
+library(tidyr)
+library(readxl)
+library(readr)
+library(mice)
+library(future)
+library(future.apply)
+```
+
+## Import cleaned dataframe
+
+```{r read cleaned df csv}
+# Read csv
+df <- read_csv("2_adhd_menarche_clean.csv", show_col_types = FALSE)
+```
+
+### Check structure of cleaned dataframe
+
+```{r check structure clean df}
+str(df)
+```
+
+### Select relevant variables
+
+```{r select variables}
+df <- df[c("src_subject_id", 
+           "wave",
+           "age_years",
+           "menarche_status_p",
+           "pds_1_p",
+           "pds_2_p",
+           "pds_3_p",
+           "pds_f4_p",
+           "pds_f6_p",
+           "pds_ht2_y", 
+           "pds_skin2_y", 
+           "pds_bdyhair_y", 
+           "pds_f4_2_y",
+           "pds_f5_y",
+           "menarche_status_pds",
+           "cbcl_scr_syn_attention_r",
+           "cbcl_scr_syn_internal_r",  
+           "cbcl_scr_syn_external_r",
+           "adhd_diagnosis", 
+           "ethnicity",
+           "adi",
+           "inr",
+           "income",
+           "roster",
+           "family_id",
+           "site_id",
+           "bmi_baseline",
+           "stimulant_use")]
+```
+
+### Visual check of working dataframe
+
+```{r check working df}
+head(df)
+```
+
+## Imputation
+
+### Perform imputations
+
+```{r imputations}
+df$pds_f4_p <- factor(df$pds_f4_p, levels = 1:4, ordered = TRUE)
+
+# Identify variables with missing data, excluding some variables
+excluded_vars <- c("wave", "src_subject_id", "family_id", "site_id", 
+                   "menarche_status_p", "adhd_diagnosis", "stimulant_use")
+
+vars_to_impute <- names(df)[
+  sapply(df, function(x) any(is.na(x))) & !(names(df) %in% excluded_vars)
+]
+
+# Create method vector
+methods <- make.method(df)
+methods[] <- ""  # initialise all as excluded
+methods[vars_to_impute] <- "pmm"  # default to PMM
+methods["pds_f4_p"] <- "polr" # use ordinal logistic regression for breast development
+
+# Define predictor matrix
+predictor_matrix <- make.predictorMatrix(df)
+
+# Prevent ID and wave variables from being used as predictors
+predictor_matrix[, excluded_vars] <- 0
+
+# Prevent variables from predicting themselves
+diag(predictor_matrix) <- 0
+
+# Set seed
+set.seed(1234)
+
+# Run imputation using futuremice (parallelised)
+imp <- futuremice(
+  df, 
+  method = methods, 
+  predictorMatrix = predictor_matrix, 
+  m = 20, 
+  n.core = 4, 
+  n.imp.core = 1
+)
+```
+
+### Average imputed datasets
+
+```{r average imputed datasets}
+# Extract all 20 completed datasets
+all_imputed <- lapply(1:imp$m, function(i) complete(imp, i))
+
+# Bind all datasets and track imputation number
+for (i in seq_along(all_imputed)) {
+  all_imputed[[i]]$.imp <- i
+  # Convert ordered factors to numeric for averaging
+  all_imputed[[i]]$pds_f4_p <- as.numeric(as.character(all_imputed[[i]]$pds_f4_p))
+}
+
+combined <- bind_rows(all_imputed)
+
+# Identify variables to average
+id_vars <- c("src_subject_id", "wave")
+imputed_vars <- names(imp$method)[imp$method != ""]
+
+# Average imputed values across imputations
+averaged <- combined %>%
+  group_by(across(all_of(id_vars))) %>%
+  summarise(across(all_of(imputed_vars), ~mean(.x, na.rm = TRUE)), .groups = "drop")
+
+# Get original dataset
+original <- complete(imp, 0)
+
+# Merge and replace missing values
+imp_df <- left_join(original, averaged, by = id_vars, suffix = c("", "_avg"))
+
+for (v in imputed_vars) {
+  imp_df[[v]] <- ifelse(is.na(imp_df[[v]]), imp_df[[paste0(v, "_avg")]], imp_df[[v]])
+  imp_df[[paste0(v, "_avg")]] <- NULL
+}
+```
+
+### Check imputed dataframe structure
+
+```{r check imputed df structure}
+str(imp_df)
+```
+
+### Remove wave 4 data (only half collected)
+
+```{r remove wave 4}
+imp_df <- imp_df %>%
+  filter(wave != "wave_4")
+```
+
+### Grand mean centre continuous predictors
+
+```{r grand mean centre}
+# Variables to grand mean center
+vars_to_center <- c("age_years", "inr", "cbcl_scr_syn_attention_r",
+                    "cbcl_scr_syn_internal_r", "cbcl_scr_syn_external_r",  
+                    "pds_f4_p", "bmi_baseline")
+
+# Compute grand means
+grand_means <- imp_df %>%
+  summarise(across(all_of(vars_to_center), \(x) mean(x, na.rm = TRUE)))
+
+# Center the variables
+imp_df <- imp_df %>%
+  mutate(across(all_of(vars_to_center), 
+                ~ . - grand_means[[cur_column()]], 
+                .names = "{.col}_c"))
+
+# View first few rows to check
+head(imp_df)
+```
+
+### Check INR missingness
+
+```{r NA inr}
+# Count missing led_l_inr_wsum data by wave
+missing_inr_imp_by_wave <- imp_df %>%
+  group_by(wave) %>%
+  summarise(missing_inr_c = sum(is.na(inr_c)),
+            total = n(),
+            missing_percent = (missing_inr_c / total) * 100)
+
+# Print the results
+print(missing_inr_imp_by_wave)
+```
+
+### Save imputed dataset
+
+```{r export df}
+write.csv(imp_df, "study_2_imputed_dataset.csv", row.names = FALSE)
+```

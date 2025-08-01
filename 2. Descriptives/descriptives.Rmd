@@ -1,0 +1,1207 @@
+---
+title: "ABCD ADHD menarche analysis descriptives"
+format: pdf
+execute: 
+  echo: false
+---
+
+## Load libraries
+
+```{r load libraries, include = FALSE}
+# load libraries
+library(dplyr)
+library(knitr)
+library(tidyr)
+library(readxl)
+library(readr)
+library(AER)
+library(ggplot2)
+library(psych)
+library(purrr)
+library(stringr)
+library(irr)
+```
+
+### Read csv for cleaned dataframe
+
+```{r read csv}
+# Read csv
+adhd_menarche_clean <- read_csv("2_adhd_menarche_clean.csv", show_col_types = FALSE)
+```
+
+### Check cleaned dataframe
+
+```{r head clen df}
+head(adhd_menarche_clean)
+```
+
+### Remove wave 4
+
+```{r remove wave 4}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  filter(wave != "wave_4")
+```
+
+## Sample size
+
+```{r sample size}
+# Function to count sample size by wave
+get_n <- function(data) {
+  data %>%
+    group_by(wave) %>%
+    summarise(n = n())
+}
+
+# Full sample
+full_n <- get_n(adhd_menarche_clean) %>%
+  rename(`Full sample` = n)
+
+# ADHD group
+adhd_n <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  get_n() %>%
+  rename(ADHD = n)
+
+# Non-ADHD group
+non_adhd_n <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  get_n() %>%
+  rename(`Non-ADHD` = n)
+
+# Combine into one table
+sample_size_table <- full_n %>%
+  left_join(adhd_n, by = "wave") %>%
+  left_join(non_adhd_n, by = "wave")
+
+# View the table
+print(sample_size_table)
+```
+
+## ADHD Diagnosis
+
+### ADHD diagnosis missing
+
+```{r NA adhd diganosis}
+# Count missing adhd data by wave
+missing_diagnosis_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_diagnosis = sum(is.na(adhd_diagnosis)),
+            total = n(),
+            missing_percent = (missing_diagnosis / total) * 100)
+
+# Print the results
+print(missing_diagnosis_by_wave)
+```
+
+## Age
+
+```{r age}
+# Summary statistics by wave
+summary_stats_age_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(age_years, na.rm = TRUE),
+    median_score = median(age_years, na.rm = TRUE),
+    sd_score = sd(age_years, na.rm = TRUE),
+    min_score = min(age_years, na.rm = TRUE),
+    max_score = max(age_years, na.rm = TRUE),
+    n_valid = sum(!is.na(age_years)),
+    n_missing = sum(is.na(age_years))
+  )
+
+print(summary_stats_age_by_wave)
+
+# ADHD group
+adhd_age <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(age_years, na.rm = TRUE),
+    median_score = median(age_years, na.rm = TRUE),
+    sd_score = sd(age_years, na.rm = TRUE),
+    min_score = min(age_years, na.rm = TRUE),
+    max_score = max(age_years, na.rm = TRUE),
+    n_valid = sum(!is.na(age_years)),
+    n_missing = sum(is.na(age_years))
+  )
+
+print(adhd_age)
+
+# Non-ADHD group
+non_adhd_age <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(age_years, na.rm = TRUE),
+    median_score = median(age_years, na.rm = TRUE),
+    sd_score = sd(age_years, na.rm = TRUE),
+    min_score = min(age_years, na.rm = TRUE),
+    max_score = max(age_years, na.rm = TRUE),
+    n_valid = sum(!is.na(age_years)),
+    n_missing = sum(is.na(age_years))
+  )
+
+print(non_adhd_age)
+```
+
+## Menarche
+
+### Menarche missing
+
+```{r NA menarche status p}
+# Count missing menarche data by wave
+missing_menarche_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_menarche = sum(is.na(menarche_status_p)),
+            total = n(),
+            missing_percent = (missing_menarche / total) * 100)
+
+# Print the results
+print(missing_menarche_by_wave)
+```
+
+### Menarche histogram
+
+```{r menarche graph}
+# Create a bar graph for menarche status by wave
+ggplot(adhd_menarche_clean, aes(x = wave, fill = menarche_status_p)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Menarche Status by Wave",
+    x = "Wave",
+    y = "Count",
+    fill = "Menarche Status"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Y" = "lightblue", "N" = "salmon"))
+```
+
+### Menarche status by ADHD diagnosis for each wave
+
+```{r menarche status by ADHD}
+# Function to calculate percentage with menarche_status_p == "Y"
+get_percent_menarche <- function(data) {
+  data %>%
+    group_by(wave) %>%
+    summarise(
+      percent = mean(menarche_status_p == "Y", na.rm = TRUE) * 100
+    )
+}
+
+# Full sample
+full <- get_percent_menarche(adhd_menarche_clean) %>%
+  rename(`Full sample` = percent)
+
+# ADHD only
+adhd <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  get_percent_menarche() %>%
+  rename(ADHD = percent)
+
+# Non-ADHD only
+non_adhd <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  get_percent_menarche() %>%
+  rename(`Non-ADHD` = percent)
+
+# Join all into one table
+menarche_table <- full %>%
+  left_join(adhd, by = "wave") %>%
+  left_join(non_adhd, by = "wave")
+
+# Optional: round percentages to 1 decimal place
+menarche_table <- menarche_table %>%
+  mutate(across(-wave, \(x) round(x, 1)))
+
+# View table
+print(menarche_table)
+```
+
+### Concordance between (raw) youth and parent menarche status
+
+```{r youth parent menarche agreement}
+# Filter out cases where either parent or youth report is missing
+df_agreement <- adhd_menarche_clean %>%
+  filter(!is.na(pds_f5b_p) & !is.na(pds_f5_y)) %>%
+  transmute(
+    parent = as.character(pds_f5b_p),
+    youth  = as.character(pds_f5_y)
+  )
+
+# Run Cohen's Kappa on valid data only
+kappa_result <- cohen.kappa(as.matrix(df_agreement))
+
+# Print the Kappa result
+print(kappa_result)
+
+# Calculate and print percentage agreement
+percent_agreement <- mean(df_agreement$parent == df_agreement$youth) * 100
+print(percent_agreement)
+```
+
+## Breast development
+
+### Breast development score missing
+
+```{r NA breast development}
+# Count missing breast developmenbt data by wave
+missing_breast_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_breast = sum(is.na(pds_f4_p)),
+            total = n(),
+            missing_percent = (missing_breast / total) * 100)
+
+# Print the results
+print(missing_breast_by_wave)
+```
+
+### Breast development histogram
+
+```{r breast histogram}
+histogram_breast_data <- adhd_menarche_clean %>%
+  filter(!is.na(pds_f4_p))
+
+ggplot(histogram_breast_data, aes(x = pds_f4_p, fill = factor(wave))) +
+  geom_histogram(binwidth = 1, color = "black", alpha = 0.7) +
+  facet_wrap(~ wave, scales = "free_y") +
+  labs(
+    title = "Distribution of Breast Scores by Wave",
+    x = "Breast Scores",
+    y = "Count",
+    fill = "Wave"
+  ) +
+  theme_minimal()
+```
+
+### Breast development boxplots
+
+```{r breast boxplots}
+boxplot_breast_data <- adhd_menarche_clean %>%
+  filter(!is.na(pds_f4_2_y))
+
+ggplot(boxplot_breast_data, aes(x = wave, y = pds_f4_2_y)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Breast Scores by Wave",
+    x = "Wave",
+    y = "Breast Scores"
+  ) +
+  theme_minimal()
+```
+
+### Breast development summary statistics
+
+```{r breast summary}
+# Summary statistics by wave
+summary_stats_breast_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(pds_f4_p, na.rm = TRUE),
+    median_score = median(pds_f4_p, na.rm = TRUE),
+    sd_score = sd(pds_f4_p, na.rm = TRUE),
+    min_score = min(pds_f4_p, na.rm = TRUE),
+    max_score = max(pds_f4_p, na.rm = TRUE),
+    n_valid = sum(!is.na(pds_f4_p)),
+    n_missing = sum(is.na(pds_f4_p))
+  )
+
+print(summary_stats_breast_by_wave)
+
+# ADHD group
+adhd_breast <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+    group_by(wave) %>%
+  summarise(
+    mean_score = mean(pds_f4_p, na.rm = TRUE),
+    median_score = median(pds_f4_p, na.rm = TRUE),
+    sd_score = sd(pds_f4_p, na.rm = TRUE),
+    min_score = min(pds_f4_p, na.rm = TRUE),
+    max_score = max(pds_f4_p, na.rm = TRUE),
+    n_valid = sum(!is.na(pds_f4_p)),
+    n_missing = sum(is.na(pds_f4_p))
+  )
+
+print(adhd_breast)
+
+# Non-ADHD group
+non_adhd_breast <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+    group_by(wave) %>%
+  summarise(
+    mean_score = mean(pds_f4_p, na.rm = TRUE),
+    median_score = median(pds_f4_p, na.rm = TRUE),
+    sd_score = sd(pds_f4_p, na.rm = TRUE),
+    min_score = min(pds_f4_p, na.rm = TRUE),
+    max_score = max(pds_f4_p, na.rm = TRUE),
+    n_valid = sum(!is.na(pds_f4_p)),
+    n_missing = sum(is.na(pds_f4_p))
+  )
+
+print(non_adhd_breast)
+```
+
+## ADHD traits
+
+### ADHD traits missing
+
+```{r NA cbcl attention}
+# Count missing adhd traits data by wave
+missing_traits_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_traits = sum(is.na(cbcl_scr_syn_attention_r)),
+            total = n(),
+            missing_percent = (missing_traits / total) * 100)
+
+# Print the results
+print(missing_traits_by_wave)
+```
+
+### ADHD traits histogram
+
+```{r adhd traits histogram}
+histogram_traits_data <- adhd_menarche_clean %>%
+  filter(!is.na(cbcl_scr_syn_attention_r))
+
+ggplot(histogram_traits_data, aes(x = cbcl_scr_syn_attention_r, fill = factor(wave))) +
+  geom_histogram(binwidth = 1, color = "black", alpha = 0.7) +
+  facet_wrap(~ wave, scales = "free_y") +
+  labs(
+    title = "Distribution of ADHD Traits by Wave",
+    x = "CBCL Attention Syndrome Raw Scores",
+    y = "Count",
+    fill = "Wave"
+  ) +
+  theme_minimal()
+```
+
+### ADHD traits boxplots
+
+```{r traits boxplots}
+boxplot_traits_data <- adhd_menarche_clean %>%
+  filter(!is.na(cbcl_scr_syn_attention_r))
+
+ggplot(boxplot_traits_data, aes(x = wave, y = cbcl_scr_syn_attention_r)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Attention Syndrome Scores by Wave",
+    x = "Wave",
+    y = "CBCL Attention Syndrome Raw Scores"
+  ) +
+  theme_minimal()
+```
+
+### ADHD traits summary statistics
+
+```{r adhd dummary}
+# Summary statistics by wave
+summary_stats_traits_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_attention_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_attention_r))
+  )
+
+print(summary_stats_traits_by_wave)
+
+# ADHD group
+adhd_traits <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_attention_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_attention_r))
+  )
+
+print(adhd_traits)
+
+# Non-ADHD group
+non_adhd_traits <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_attention_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_attention_r))
+  )
+
+print(non_adhd_traits)
+```
+
+### ADHD traits overdispersion test
+
+```{r overdispersion test traits}
+poisson_model <- glm(cbcl_scr_syn_attention_r ~ 1, family = poisson, data = adhd_menarche_clean)
+
+dispersion_test <- dispersiontest(poisson_model)
+
+print(dispersion_test)
+```
+
+## Internalising
+
+### Internalising missing
+
+```{r NA cbcl internal}
+# Count missing internalising data by wave
+missing_internal_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_internal = sum(is.na(cbcl_scr_syn_internal_r)),
+            total = n(),
+            missing_percent = (missing_internal / total) * 100)
+
+# Print the results
+print(missing_internal_by_wave)
+```
+
+### Internalising histogram
+
+```{r internal histogram}
+histogram_internal_data <- adhd_menarche_clean %>%
+  filter(!is.na(cbcl_scr_syn_internal_r))
+
+ggplot(histogram_internal_data, aes(x = cbcl_scr_syn_internal_r, fill = factor(wave))) +
+  geom_histogram(binwidth = 1, color = "black", alpha = 0.7) +
+  facet_wrap(~ wave, scales = "free_y") +
+  labs(
+    title = "Distribution of Internalising Syndrome Scores by Wave",
+    x = "CBCL Internalising Syndrome Raw Scores",
+    y = "Count",
+    fill = "Wave"
+  ) +
+  theme_minimal()
+```
+
+### Internalising boxplots
+
+```{r internal boxplots}
+boxplot_internal_data <- adhd_menarche_clean %>%
+  filter(!is.na(cbcl_scr_syn_internal_r))
+
+ggplot(boxplot_internal_data, aes(x = wave, y = cbcl_scr_syn_internal_r)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Internalising Syndrome Scores by Wave",
+    x = "Wave",
+    y = "CBCL Internalising Syndrome Raw Scores"
+  ) +
+  theme_minimal()
+```
+
+### Internalising summary
+
+```{r internal summary}
+# Summary statistics by wave
+summary_stats_internalising_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_internal_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_internal_r))
+  )
+
+print(summary_stats_internalising_by_wave)
+
+# ADHD group
+adhd_internalising <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_internal_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_internal_r))
+  )
+
+print(adhd_internalising)
+
+# Non-ADHD group
+non_adhd_internalising <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_internal_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_internal_r))
+  )
+
+print(non_adhd_internalising)
+```
+
+### Internalising overdispersion test
+
+```{r overdispersion test internal}
+poisson_model <- glm(cbcl_scr_syn_internal_r ~ 1, family = poisson, data = adhd_menarche_clean)
+
+dispersion_test <- dispersiontest(poisson_model)
+
+print(dispersion_test)
+```
+
+## Externalising
+
+### Externalising missing
+
+```{r NA external}
+# Count missing externalising data by wave
+missing_external_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_external = sum(is.na(cbcl_scr_syn_external_r)),
+            total = n(),
+            missing_percent = (missing_external / total) * 100)
+
+# Print the results
+print(missing_external_by_wave)
+```
+
+### Externalising histogram
+
+```{r external graph}
+histogram_external_data <- adhd_menarche_clean %>%
+  filter(!is.na(cbcl_scr_syn_external_r))
+
+ggplot(histogram_external_data, aes(x = cbcl_scr_syn_external_r, fill = factor(wave))) +
+  geom_histogram(binwidth = 1, color = "black", alpha = 0.7) +
+  facet_wrap(~ wave, scales = "free_y") +
+  labs(
+    title = "Distribution of Externalising Syndrome Scores by Wave",
+    x = "CBCL Externalising Syndrome Raw Scores",
+    y = "Count",
+    fill = "Wave"
+  ) +
+  theme_minimal()
+```
+
+### Externalising boxplots
+
+```{r external boxplots}
+boxplot_external_data <- adhd_menarche_clean %>%
+  filter(!is.na(cbcl_scr_syn_external_r))
+
+ggplot(boxplot_external_data, aes(x = wave, y = cbcl_scr_syn_external_r)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Externalising Syndrome Scores by Wave",
+    x = "Wave",
+    y = "CBCL Externalising Syndrome Raw Scores"
+  ) +
+  theme_minimal()
+```
+
+### Externalising summary statistics
+
+```{r external summary}
+# Summary statistics by wave
+summary_stats_externalising_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_external_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_external_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_external_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_external_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_external_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_external_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_external_r))
+  )
+
+print(summary_stats_externalising_by_wave)
+
+# ADHD group
+adhd_externalising <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_external_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_external_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_external_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_external_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_external_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_external_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_external_r))
+  )
+
+print(adhd_externalising)
+
+# Non-ADHD group
+non_adhd_externalising <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_external_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_external_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_external_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_external_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_external_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_external_r)),
+    n_missing = sum(is.na(cbcl_scr_syn_external_r))
+  )
+
+print(non_adhd_externalising)
+```
+
+### Externalising overdispersion test
+
+```{r overdispersion test external}
+poisson_model <- glm(cbcl_scr_syn_external_r ~ 1, family = poisson, data = adhd_menarche_clean)
+
+dispersion_test <- dispersiontest(poisson_model)
+
+print(dispersion_test)
+```
+
+## Income-to-needs ratio (INR)
+
+### INR missing
+
+```{r NA inr}
+# Count missing inr data by wave
+missing_inr_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_inr = sum(is.na(inr)),
+            total = n(),
+            missing_percent = (missing_inr / total) * 100)
+
+# Print the results
+print(missing_inr_by_wave)
+```
+
+### INR histogram
+
+```{r inr histogram}
+histogram_inr_data <- adhd_menarche_clean %>%
+  filter(!is.na(adi))
+
+ggplot(histogram_inr_data, aes(x = inr, fill = factor(wave))) +
+  geom_histogram(binwidth = 1, color = "black", alpha = 0.7) +
+  facet_wrap(~ wave, scales = "free_y") +
+  labs(
+    title = "Distribution of INR by Wave",
+    x = "INR",
+    y = "Count",
+    fill = "Wave"
+  ) +
+  theme_minimal()
+```
+
+### INR boxplots
+
+```{r inr boxplots}
+boxplot_external_data <- adhd_menarche_clean %>%
+  filter(!is.na(inr))
+
+ggplot(boxplot_external_data, aes(x = wave, y = inr)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Income-to-Needs Ratio by Wave",
+    x = "Wave",
+    y = "Income-to-Needs Ratio"
+  ) +
+  theme_minimal()
+```
+
+### INR summary statistics
+
+```{r inr summary}
+# Summary statistics by wave
+summary_stats_inr_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(inr, na.rm = TRUE),
+    sd_score = sd(inr, na.rm = TRUE),
+    min_score = min(inr, na.rm = TRUE),
+    max_score = max(inr, na.rm = TRUE),
+    n_valid = sum(!is.na(inr)),
+    n_missing = sum(is.na(inr))
+  )
+
+print(summary_stats_inr_by_wave)
+
+# ADHD group
+adhd_inr <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 1) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(inr, na.rm = TRUE),
+    sd_score = sd(inr, na.rm = TRUE),
+    min_score = min(inr, na.rm = TRUE),
+    max_score = max(inr, na.rm = TRUE),
+    n_valid = sum(!is.na(inr)),
+    n_missing = sum(is.na(inr))
+  )
+
+print(adhd_inr)
+
+# Non-ADHD group
+non_adhd_inr <- adhd_menarche_clean %>%
+  filter(adhd_diagnosis == 0) %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(inr, na.rm = TRUE),
+    sd_score = sd(inr, na.rm = TRUE),
+    min_score = min(inr, na.rm = TRUE),
+    max_score = max(inr, na.rm = TRUE),
+    n_valid = sum(!is.na(inr)),
+    n_missing = sum(is.na(inr))
+  )
+
+print(non_adhd_inr)
+```
+
+## Race/Ethnicity
+
+### Race/ethnicity missing
+
+```{r NA ethnicity}
+# Count missing ethnicity data by wave
+missing_ethnicity_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_ethnicity = sum(is.na(ethnicity)),
+            total = n(),
+            missing_percent = (missing_ethnicity / total) * 100)
+
+# Print the results
+print(missing_ethnicity_by_wave)
+```
+
+### Race/ethnicity table
+
+```{r ethnicity table}
+# Function to calculate ethnicity percentages
+get_ethnicity_percent <- function(data) {
+  data %>%
+    filter(wave == "wave_0") %>%
+    group_by(ethnicity) %>%
+    summarise(percent = n() / nrow(.) * 100)
+}
+
+# Full sample
+full_ethnicity <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  count(ethnicity) %>%
+  mutate(`Full sample` = n / sum(n) * 100) %>%
+  select(-n)
+
+# ADHD group
+adhd_ethnicity <- adhd_menarche_clean %>%
+  filter(wave == "wave_0", adhd_diagnosis == 1) %>%
+  count(ethnicity) %>%
+  mutate(ADHD = n / sum(n) * 100) %>%
+  select(-n)
+
+# Non-ADHD group
+non_adhd_ethnicity <- adhd_menarche_clean %>%
+  filter(wave == "wave_0", adhd_diagnosis == 0) %>%
+  count(ethnicity) %>%
+  mutate(`Non-ADHD` = n / sum(n) * 100) %>%
+  select(-n)
+
+# Join all tables
+ethnicity_table <- full_ethnicity %>%
+  full_join(adhd_ethnicity, by = "ethnicity") %>%
+  full_join(non_adhd_ethnicity, by = "ethnicity") %>%
+  mutate(across(-ethnicity, \(x) round(x, 1))) %>%
+  arrange(ethnicity)
+
+# View the table
+print(ethnicity_table)
+```
+
+# Group differences
+
+## Age
+
+```{r age t-tests}
+wave_0_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  select(adhd_diagnosis, age_years) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for age
+age_years_wilcox_0 <- wilcox.test(age_years ~ adhd_diagnosis, 
+                               data = wave_0_df,
+                               exact = FALSE)
+print("Age Wilcoxon Test baseline:")
+print(age_years_wilcox_0)
+
+
+wave_1_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_1") %>%
+  select(adhd_diagnosis, age_years) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for age
+age_years_wilcox_1 <- wilcox.test(age_years ~ adhd_diagnosis, 
+                               data = wave_1_df,
+                               exact = FALSE)
+print("Age Wilcoxon Test wave 1:")
+print(age_years_wilcox_1)
+
+wave_2_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_2") %>%
+  select(adhd_diagnosis, age_years) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for age
+age_years_wilcox_2 <- wilcox.test(age_years ~ adhd_diagnosis, 
+                               data = wave_2_df,
+                               exact = FALSE)
+print("Age Wilcoxon Test wave 2:")
+print(age_years_wilcox_2)
+
+wave_3_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_3") %>%
+  select(adhd_diagnosis, age_years) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for age
+age_years_wilcox_3 <- wilcox.test(age_years ~ adhd_diagnosis, 
+                               data = wave_3_df,
+                               exact = FALSE)
+print("Age Wilcoxon Test wave 3:")
+print(age_years_wilcox_3)
+```
+
+## Menarche status
+
+```{r menarche status chi-squared}
+waves <- paste0("wave_", 0:3)
+
+for (w in waves) {
+  cat("\n====================\n")
+  cat("Wave:", w, "\n")
+
+  # Filter for wave, valid ADHD diagnosis, and menarche status
+  df <- adhd_menarche_clean %>%
+    filter(wave == w,
+           adhd_diagnosis %in% c(0, 1),
+           menarche_status_p %in% c("Y", "N"))
+
+  # Create contingency table
+  tab <- table(df$adhd_diagnosis, df$menarche_status_p)
+  colnames(tab) <- c("Pre-menarche", "Post-menarche")
+  rownames(tab) <- c("No ADHD", "ADHD")
+  print(tab)
+
+  # Use Fisher's exact test if any cell has <5, otherwise chi-squared
+  if (any(tab < 5)) {
+    test_result <- fisher.test(tab)
+    cat("Fisher's Exact Test p-value:", round(test_result$p.value, 4), "\n")
+  } else {
+    test_result <- chisq.test(tab)
+    cat("Chi-squared Test p-value:", round(test_result$p.value, 4), "\n")
+  }
+}
+
+```
+
+## Breast development
+
+```{r breast development t-tests}
+wave_0_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  select(adhd_diagnosis, pds_f4_p) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for breast development
+breast_wilcox_0 <- wilcox.test(pds_f4_p ~ adhd_diagnosis, 
+                                data = wave_0_df,
+                                exact = FALSE)
+print("Breast Wilcoxon Test baseline:")
+print(breast_wilcox_0)
+
+
+wave_1_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_1") %>%
+  select(adhd_diagnosis, pds_f4_p) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for breast development
+breast_wilcox_1 <- wilcox.test(pds_f4_p ~ adhd_diagnosis, 
+                                data = wave_1_df,
+                                exact = FALSE)
+print("Breast development Wilcoxon Test wave 1:")
+print(breast_wilcox_1)
+
+wave_2_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_2") %>%
+  select(adhd_diagnosis, pds_f4_p) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for breast development
+breast_wilcox_2 <- wilcox.test(pds_f4_p ~ adhd_diagnosis, 
+                                data = wave_2_df,
+                                exact = FALSE)
+print("Breast development Wilcoxon Test wave 1:")
+print(breast_wilcox_2)
+
+wave_3_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_3") %>%
+  select(adhd_diagnosis, pds_f4_p) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for breast development
+breast_wilcox_3 <- wilcox.test(pds_f4_p ~ adhd_diagnosis, 
+                                data = wave_3_df,
+                                exact = FALSE)
+print("Breast development Wilcoxon Test wave 3:")
+print(breast_wilcox_3)
+
+```
+
+## CBCL
+
+### CBCL scores baseline
+
+```{r cbcl baseline t-test}
+wave_0_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  select(adhd_diagnosis, cbcl_scr_syn_attention_r, 
+         cbcl_scr_syn_internal_r, cbcl_scr_syn_external_r) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for cbcl_scr_syn_attention_r
+attention_wilcox <- wilcox.test(cbcl_scr_syn_attention_r ~ adhd_diagnosis, 
+                                data = wave_0_df,
+                                exact = FALSE)
+print("Attention Wilcoxon Test:")
+print(attention_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_internal_r
+internal_wilcox <- wilcox.test(cbcl_scr_syn_internal_r ~ adhd_diagnosis, 
+                                data = wave_0_df,
+                                exact = FALSE)
+print("Internal Wilcoxon Test:")
+print(internal_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_external_r
+external_wilcox <- wilcox.test(cbcl_scr_syn_external_r ~ adhd_diagnosis, 
+                                data = wave_0_df,
+                                exact = FALSE)
+print("External Wilcoxon Test:")
+print(external_wilcox)
+```
+
+### CBCL wave 1
+
+```{r cbcl wave 1 t-tests}
+wave_1_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_1") %>%
+  select(adhd_diagnosis, cbcl_scr_syn_attention_r, 
+         cbcl_scr_syn_internal_r, cbcl_scr_syn_external_r) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for cbcl_scr_syn_attention_r
+attention_wilcox <- wilcox.test(cbcl_scr_syn_attention_r ~ adhd_diagnosis, 
+                                data = wave_1_df,
+                                exact = FALSE)
+print("Attention Wilcoxon Test:")
+print(attention_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_internal_r
+internal_wilcox <- wilcox.test(cbcl_scr_syn_internal_r ~ adhd_diagnosis, 
+                                data = wave_1_df,
+                                exact = FALSE)
+print("Internal Wilcoxon Test:")
+print(internal_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_external_r
+external_wilcox <- wilcox.test(cbcl_scr_syn_external_r ~ adhd_diagnosis, 
+                                data = wave_1_df,
+                                exact = FALSE)
+print("External Wilcoxon Test:")
+print(external_wilcox)
+```
+
+### CBCL wave 2
+
+```{r cbcl wave 2 t-tests}
+wave_2_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_2") %>%
+  select(adhd_diagnosis, cbcl_scr_syn_attention_r, 
+         cbcl_scr_syn_internal_r, cbcl_scr_syn_external_r) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for cbcl_scr_syn_attention_r
+attention_wilcox <- wilcox.test(cbcl_scr_syn_attention_r ~ adhd_diagnosis, 
+                                data = wave_2_df,
+                                exact = FALSE)
+print("Attention Wilcoxon Test:")
+print(attention_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_internal_r
+internal_wilcox <- wilcox.test(cbcl_scr_syn_internal_r ~ adhd_diagnosis, 
+                                data = wave_2_df,
+                                exact = FALSE)
+print("Internal Wilcoxon Test:")
+print(internal_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_external_r
+external_wilcox <- wilcox.test(cbcl_scr_syn_external_r ~ adhd_diagnosis, 
+                                data = wave_2_df,
+                                exact = FALSE)
+print("External Wilcoxon Test:")
+print(external_wilcox)
+```
+
+### CBCL wave 3
+
+```{r cbcl wave 3 t-tests}
+wave_3_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_3") %>%
+  select(adhd_diagnosis, cbcl_scr_syn_attention_r, 
+         cbcl_scr_syn_internal_r, cbcl_scr_syn_external_r) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for cbcl_scr_syn_attention_r
+attention_wilcox <- wilcox.test(cbcl_scr_syn_attention_r ~ adhd_diagnosis, 
+                                data = wave_3_df,
+                                exact = FALSE)
+print("Attention Wilcoxon Test:")
+print(attention_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_internal_r
+internal_wilcox <- wilcox.test(cbcl_scr_syn_internal_r ~ adhd_diagnosis, 
+                                data = wave_3_df,
+                                exact = FALSE)
+print("Internal Wilcoxon Test:")
+print(internal_wilcox)
+
+# Perform Wilcoxon test for cbcl_scr_syn_external_r
+external_wilcox <- wilcox.test(cbcl_scr_syn_external_r ~ adhd_diagnosis, 
+                                data = wave_3_df,
+                                exact = FALSE)
+print("External Wilcoxon Test:")
+print(external_wilcox)
+```
+
+## INR
+
+```{r inr t-tests}
+wave_0_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  select(adhd_diagnosis, inr) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for inr
+inr_wilcox_0 <- wilcox.test(inr ~ adhd_diagnosis, 
+                               data = wave_0_df,
+                               exact = FALSE)
+print("INR Wilcoxon Test baseline:")
+print(inr_wilcox_0)
+
+
+wave_1_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_1") %>%
+  select(adhd_diagnosis, inr) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for inr
+inr_wilcox_1 <- wilcox.test(inr ~ adhd_diagnosis, 
+                               data = wave_1_df,
+                               exact = FALSE)
+print("INR Wilcoxon Test wave 1:")
+print(inr_wilcox_1)
+
+wave_2_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_2") %>%
+  select(adhd_diagnosis, inr) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for inr
+inr_wilcox_2 <- wilcox.test(inr ~ adhd_diagnosis, 
+                               data = wave_2_df,
+                               exact = FALSE)
+print("INR Wilcoxon Test wave 2")
+print(inr_wilcox_2)
+
+wave_3_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_3") %>%
+  select(adhd_diagnosis, inr) %>%
+  mutate(adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1),
+                                 labels = c("No ADHD", "ADHD")))
+
+# Perform Wilcoxon test for inr
+inr_wilcox_3 <- wilcox.test(inr ~ adhd_diagnosis, 
+                               data = wave_3_df,
+                               exact = FALSE)
+print("INR Wilcoxon Test wave 3")
+print(inr_wilcox_3)
+```
+
+## Ethnicity
+
+```{r ethnicity chi-squared}
+# Define ethnicity label mapping
+ethnicity_labels <- c(
+  "1" = "Non-Hispanic White",
+  "2" = "Non-Hispanic Black",
+  "3" = "Hispanic",
+  "4" = "Asian",
+  "5" = "Other"
+)
+
+# Filter to wave_0 and valid ADHD diagnosis and ethnicity codes
+wave_0_ethnicity_df <- adhd_menarche_clean %>%
+  filter(wave == "wave_0",
+         adhd_diagnosis %in% c(0, 1),
+         ethnicity %in% 1:5) %>%
+  mutate(
+    ethnicity = factor(ethnicity_labels[as.character(ethnicity)], levels = ethnicity_labels),
+    adhd_diagnosis = factor(adhd_diagnosis, levels = c(0, 1), labels = c("No ADHD", "ADHD"))
+  )
+
+# Display proportions
+ethnicity_props <- prop.table(table(wave_0_ethnicity_df$adhd_diagnosis, wave_0_ethnicity_df$ethnicity), margin = 1) * 100
+print(round(ethnicity_props, 1))
+
+# Chi-squared or Fisher's test depending on counts
+ethnicity_counts <- table(wave_0_ethnicity_df$adhd_diagnosis, wave_0_ethnicity_df$ethnicity)
+
+if (any(ethnicity_counts < 5)) {
+  test_result <- fisher.test(ethnicity_counts)
+  cat("\nFisher's Exact Test p-value:", round(test_result$p.value, 4), "\n")
+} else {
+  test_result <- chisq.test(ethnicity_counts)
+  cat("\nChi-squared Test p-value:", round(test_result$p.value, 4), "\n")
+}
+
+```

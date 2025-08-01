@@ -1,0 +1,1035 @@
+---
+title: "ABCD ADHD menarche processing all other variables (step 3)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+
+```{r load libraries}
+library(tidyverse)
+library(dplyr)
+```
+
+## Read saved ADHD menarche dataframe 
+
+```{r read/view menarche cleaned df}
+adhd_menarche_clean_menstat <- read.csv("1_adhd_menarche_clean_menstat.csv")
+
+head(adhd_menarche_clean_menstat)
+```
+
+### Copy and rename dataset for cleaning
+
+```{r copy and rename for clean}
+adhd_menarche_clean <- adhd_menarche_clean_menstat
+```
+
+## Pubertal Development Scale cleaning
+
+### Change 777 and 999 to NA for parent and youth
+
+```{r PDS 777 and 999 to NA}
+### 777 and 999 to NA for parent and youth PDS 
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(across(c(pds_1_p, pds_2_p, pds_3_p, 
+                  pds_f4_p, pds_f5b_p,
+                  pds_ht2_y, pds_skin2_y, pds_bdyhair_y, 
+                  pds_f4_2_y, pds_f6_y), 
+                ~ na_if(., 999))) %>%
+  mutate(across(c(pds_1_p, pds_2_p, pds_3_p, 
+                  pds_f4_p, pds_f5b_p,
+                  pds_ht2_y, pds_skin2_y, pds_bdyhair_y, 
+                  pds_f4_2_y, pds_f6_y), 
+                ~ na_if(., 777)))
+```
+
+### Breast development (parent report) summary statistics
+
+```{r breast development summary}
+# Summary statistics by wave
+summary_stats_breast_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(pds_f4_p, na.rm = TRUE),
+    median_score = median(pds_f4_p, na.rm = TRUE),
+    sd_score = sd(pds_f4_p, na.rm = TRUE),
+    min_score = min(pds_f4_p, na.rm = TRUE),
+    max_score = max(pds_f4_p, na.rm = TRUE),
+    n_valid = sum(!is.na(pds_f4_p))
+  )
+
+print(summary_stats_breast_by_wave)
+```
+
+### Check missing breast development (parent report) data
+
+```{r NA missing breast development}
+# Count missing breast development by wave
+missing_bd_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    missing_pds_f4_p = sum(is.na(pds_f4_p)),
+    total = n()
+  ) %>%
+  mutate(
+    missing_pds_f4_p_percent = (missing_pds_f4_p / total) * 100
+  )
+
+# Print the results
+print(missing_bd_by_wave)
+```
+
+### Check number of participants who have breast development that goes backwards (i.e., score is smaller than previous wave)
+
+```{r bd backwards check}
+# Create vector with number of participants with breast development that goes backwards
+n_decreasing_bd <- adhd_menarche_clean %>%
+  arrange(src_subject_id, wave) %>%
+  group_by(src_subject_id) %>%
+  filter(!all(is.na(pds_f4_p))) %>%
+  mutate(pds_diff = pds_f4_p - lag(pds_f4_p)) %>%
+  summarise(has_decrease = any(pds_diff < 0, na.rm = TRUE)) %>%
+  summarise(total_decreasing = sum(has_decrease))
+
+# Print the total number
+print(n_decreasing_bd)
+```
+
+## ADHD diagnosis processing
+
+### Check NA and 888 for KSADS ADHD diagnosis at baseline and wave 1
+
+```{r NA 888 adhd diagnosis}
+# List of KSADS variables to check
+ksads_vars <- c("ksads_14_853_p", "ksads_14_854_p", "ksads_14_856_p", "ksads_14_855_p")
+
+# Count NA and 888 per variable, grouped by wave
+adhd_menarche_clean %>%
+  select(wave, all_of(ksads_vars)) %>%
+  pivot_longer(
+    cols = all_of(ksads_vars),
+    names_to = "ksads_variable",
+    values_to = "value"
+  ) %>%
+  group_by(wave, ksads_variable) %>%
+  summarise(
+    n_total = n(),
+    n_NA = sum(is.na(value)),
+    n_888 = sum(value == 888, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### Count number of participants with KSADS ADHD variables missing across for waves 0, 1, 2
+
+```{r count ADHD KSADS some missing}
+# Number of participants with all KSDAS missing for any available waves
+adhd_menarche_clean %>%
+  filter(wave %in% c("wave_0", "wave_1", "wave_2")) %>%
+  group_by(wave, src_subject_id) %>%
+  summarise(
+    all_ksads_missing = all(
+      is.na(ksads_14_856_p) &
+      is.na(ksads_14_855_p) &
+      is.na(ksads_14_853_p) &
+      is.na(ksads_14_854_p)
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(all_ksads_missing) %>%
+  count(wave, name = "n_participants_all_ksads_missing")
+```
+
+### Count the number that have all ksads missing for all of those waves
+
+```{r all KSADS ADHD missing}
+# Flag per wave whether all KSADS vars are missing
+ksads_missing_flags <- adhd_menarche_clean %>%
+  filter(wave %in% c("wave_0", "wave_1", "wave_2")) %>%
+  group_by(src_subject_id, wave) %>%
+  summarise(
+    all_ksads_missing = all(
+      is.na(ksads_14_856_p) &
+      is.na(ksads_14_855_p) &
+      is.na(ksads_14_853_p) &
+      is.na(ksads_14_854_p)
+    ),
+    .groups = "drop"
+  )
+
+# Check for participants where all three waves are missing
+fully_missing_participants <- ksads_missing_flags %>%
+  group_by(src_subject_id) %>%
+  summarise(missing_all_3_waves = all(all_ksads_missing), .groups = "drop") %>%
+  filter(missing_all_3_waves)
+
+# Count how many such participants
+n_fully_missing_ksads <- nrow(fully_missing_participants)
+
+# View result
+print(n_fully_missing_ksads)
+```
+
+### Create ADHD diagnosis variable with consistent value across waves (0 = non-ADHD, 1 = ADHD) and convert 888 = NA
+
+```{r adhd diagnosis variable}
+# Identify participants with ADHD diagnosis (any item = 1 at waves 0–2)
+adhd_1_ids <- adhd_menarche_clean %>%
+  filter(wave %in% c("wave_0", "wave_1", "wave_2")) %>%
+  filter(
+    ksads_14_856_p == 1 |
+    ksads_14_855_p == 1 |
+    ksads_14_853_p == 1 |
+    ksads_14_854_p == 1
+  ) %>%
+  pull(src_subject_id) %>%
+  unique()
+
+# Identify participants with all items = 0 at any wave (0–2), excluding ADHD positive IDs
+adhd_0_ids <- adhd_menarche_clean%>%
+  filter(wave %in% c("wave_0", "wave_1", "wave_2")) %>%
+  filter(!src_subject_id %in% adhd_1_ids) %>%
+  group_by(src_subject_id, wave) %>%
+  summarise(
+    all_zero = all(
+      ksads_14_856_p == 0 &
+      ksads_14_855_p == 0 &
+      ksads_14_853_p == 0 &
+      ksads_14_854_p == 0
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(all_zero) %>%
+  pull(src_subject_id) %>%
+  unique()
+
+# Assign ADHD diagnosis across all waves
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(adhd_diagnosis = case_when(
+    src_subject_id %in% adhd_1_ids ~ 1,
+    src_subject_id %in% adhd_0_ids ~ 0,
+    TRUE ~ NA_real_
+  ))
+```
+
+### Check new ADHD diagnosis column
+
+```{r check adhd diganosis}
+head(adhd_menarche_clean$adhd_diagnosis)
+```
+
+### Check missing for adhd diagnosis
+
+```{r NA adhd diagnosis}
+sum(is.na(adhd_menarche_clean$adhd_diagnosis))
+
+total_adhd_diagnosis <- adhd_menarche_clean %>%
+  filter(wave == "wave_0", adhd_diagnosis == 1) %>%
+  count()
+
+print(total_adhd_diagnosis)
+```
+
+## Check all waves still present
+
+```{r check all waves}
+unique(adhd_menarche_clean$wave)
+```
+
+## CBCL processing
+
+### ADHD traits (CBCL attention) summary stats
+
+```{r adhd traits summary}
+# Summary statistics by wave
+summary_stats_traits_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_attention_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_attention_r))
+  )
+
+print(summary_stats_traits_by_wave)
+```
+
+### Check missing values for ADHD traits
+
+```{r NA adhd traits}
+# Count missing attention data by wave
+missing_traits_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_traits = sum(is.na(cbcl_scr_syn_attention_r)),
+            total = n(),
+            missing_percent = (missing_traits / total) * 100)
+
+# Print the results
+print(missing_traits_by_wave)
+```
+
+### CBCL internalising summary
+
+```{r internal summary}
+# Summary statistics by wave
+summary_stats_internalising_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_internal_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_internal_r))
+  )
+
+print(summary_stats_internalising_by_wave)
+```
+
+### Check missing values for CBCL internalising
+
+```{r NA cbcl internal}
+# Count missing internalising data by wave
+missing_internal_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_internal = sum(is.na(cbcl_scr_syn_internal_r)),
+            total = n(),
+            missing_percent = (missing_internal / total) * 100)
+
+# Print the results
+print(missing_internal_by_wave)
+```
+
+### CBCL externalising summary
+
+```{r external summary}
+# Summary statistics by wave
+summary_stats_externalising_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(cbcl_scr_syn_external_r, na.rm = TRUE),
+    median_score = median(cbcl_scr_syn_external_r, na.rm = TRUE),
+    sd_score = sd(cbcl_scr_syn_external_r, na.rm = TRUE),
+    min_score = min(cbcl_scr_syn_external_r, na.rm = TRUE),
+    max_score = max(cbcl_scr_syn_external_r, na.rm = TRUE),
+    n_valid = sum(!is.na(cbcl_scr_syn_external_r))
+  )
+
+print(summary_stats_externalising_by_wave)
+```
+
+### Check missing values for CBCL externalising
+
+```{r NA cbcl external}
+# Count missing externalising data by wave
+missing_external_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_external = sum(is.na(cbcl_scr_syn_external_r)),
+            total = n(),
+            missing_percent = (missing_external / total) * 100)
+
+# Print the results
+print(missing_external_by_wave)
+```
+
+## Age processing
+
+### Summary of age
+
+```{r age summary}
+# Summary statistics by wave
+summary_stats_age_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(age_years, na.rm = TRUE),
+    median_score = median(age_years, na.rm = TRUE),
+    sd_score = sd(age_years, na.rm = TRUE),
+    min_score = min(age_years, na.rm = TRUE),
+    max_score = max(age_years, na.rm = TRUE),
+    n_valid = sum(!is.na(age_years))
+  )
+
+print(summary_stats_age_by_wave)
+```
+
+### Check missing data for age
+
+```{r NA age_years}
+# Count missing age data by wave
+missing_age_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_age = sum(is.na(age_years)),
+            total = n(),
+            missing_percent = (missing_age / total) * 100)
+
+# Print the results
+print(missing_age_by_wave)
+```
+
+## Processing for INR
+
+Note that ABCD has income across all waves in 2 different variables so these need to be combined before summarising. The same applies for roster. 
+
+### Income processing
+
+### Check missing data for income by wave
+
+```{r NA income by wave}
+# Count missing income data by wave from v2
+missing_income_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_income = sum(is.na(demo_comb_income_v2)),
+            total = n(),
+            missing_percent = (missing_income / total) * 100)
+
+# Print the results
+print(missing_income_by_wave)
+
+# Count missing income data by wave from v2_l
+missing_income_l_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_income_l = sum(is.na(demo_comb_income_v2_l)),
+            total = n(),
+            missing_percent = (missing_income_l / total) * 100)
+
+# Print the results
+print(missing_income_l_by_wave)
+```
+
+### Combine income variables so that income_v2 is used to fill in baseline and income_v2_l is used for all other waves and change 999, 777 to NA
+
+```{r create new income variable}
+adhd_menarche_clean <- adhd_menarche_clean %>% 
+  mutate(income = ifelse(!is.na(demo_comb_income_v2), 
+                                   demo_comb_income_v2, 
+                                   demo_comb_income_v2_l))
+
+# Count occurrences of 777 and 999 in the income column
+count_777 <- sum(adhd_menarche_clean$income == 777, na.rm = TRUE)
+count_999 <- sum(adhd_menarche_clean$income == 999, na.rm = TRUE)
+
+# Display the counts
+count_777
+count_999
+```
+
+### Convert 999 and 777 to NA in income variable
+
+```{r income 999/777 to NA}
+adhd_menarche_clean <- adhd_menarche_clean %>% 
+  mutate(income = ifelse(income >= 1 & income <= 10, 
+                                  income, 
+                                  NA))
+
+head(adhd_menarche_clean$income)
+```
+
+### Summary of income
+
+```{summary income}
+# Summary statistics by wave
+summary_stats_income_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(income, na.rm = TRUE),
+    median_score = median(income, na.rm = TRUE),
+    sd_score = sd(income, na.rm = TRUE),
+    min_score = min(income, na.rm = TRUE),
+    max_score = max(income, na.rm = TRUE)
+  )
+
+print(summary_stats_income_by_wave)
+```
+
+### Final check missing income by wave
+
+```{r final check NA income by wave}
+# Count missing income data by wave
+missing_income_2_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_income_2 = sum(is.na(income)),
+            total = n(),
+            missing_percent = (missing_income_2 / total) * 100)
+
+# Print the results
+print(missing_income_2_by_wave)
+```
+
+### Roster processing
+
+### Check missing household roster by wave 
+
+```{r check NA roster by wave}
+# Count missing roster data by wave
+missing_roster_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_roster = sum(is.na(demo_roster_v2)),
+            total = n(),
+            missing_percent = (missing_roster / total) * 100)
+
+# Print the results
+print(missing_roster_by_wave)
+
+# Count missing roster l data by wave
+missing_roster_l_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_roster_l = sum(is.na(demo_roster_v2_l)),
+            total = n(),
+            missing_percent = (missing_roster_l / total) * 100)
+
+# Print the results
+print(missing_roster_l_by_wave)
+```
+
+### Combine roster variables so that roster_v2 is used to fill in baseline and roster_v2_l is used for all other waves
+
+```{r create roster variable}
+adhd_menarche_clean <- adhd_menarche_clean %>% 
+  mutate(roster = ifelse(!is.na(demo_roster_v2), 
+                                   demo_roster_v2, 
+                                   demo_roster_v2_l))
+      
+head(adhd_menarche_clean$roster)
+```
+
+### Summary roster
+
+```{r summary roster}
+# Summary statistics by wave
+summary_stats_roster_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(roster, na.rm = TRUE),
+    median_score = median(roster, na.rm = TRUE),
+    sd_score = sd(roster, na.rm = TRUE),
+    min_score = min(roster, na.rm = TRUE),
+    max_score = max(roster, na.rm = TRUE),
+    n_valid = sum(!is.na(roster))
+  )
+
+print(summary_stats_roster_by_wave)
+```
+
+### Final check missing roster by wave
+
+```{r final check missing roster by wave}
+# Count missing income data by wave
+missing_roster_2_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_roster_2 = sum(is.na(roster)),
+            total = n(),
+            missing_percent = (missing_roster_2 / total) * 100)
+
+# Print the results
+print(missing_roster_2_by_wave)
+```
+
+## Create INR variable
+
+### Step 1 - convert coded income to mean for each income bracket
+
+```{r create inr variable step 1}
+# Define the income mapping
+income_mapping <- c(
+  2500,   # Midpoint of <$5,000
+  8500,   # Midpoint of $5,000–$11,999
+  14000,  # Midpoint of $12,000–$15,999
+  20500,  # Midpoint of $16,000–$24,999
+  30000,  # Midpoint of $25,000–$34,999
+  42500,  # Midpoint of $35,000–$49,999
+  62500,  # Midpoint of $50,000–$74,999
+  87500,  # Midpoint of $75,000–$99,999
+  150000, # Midpoint of $100,000–$199,999
+  300000  # Capped value for $200,000+
+)
+
+# Mutate the dataframe to include the mean income
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(mean_income = income_mapping[income])
+
+# View the updated dataframe
+head(adhd_menarche_clean$mean_income)
+```
+
+### Households over 15 people
+
+```{r households over 15}
+# Count households with more than 20 people
+households_over_15 <- adhd_menarche_clean %>%
+  filter(demo_roster_v2_l > 15) %>%
+  count()
+# Display the count
+print(households_over_15)
+```
+
+### Create wave_people variable in dataframe, exclude 2 x households over 15
+
+```{r create wave_people variable}
+# Create a new column for wave_people
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    wave_people = case_when(
+      roster <= 15 ~ paste0(wave, "_", roster),
+      TRUE ~ NA_character_ # Assign NA for households with more than 15 people
+    )
+  )
+
+# View the updated dataframe
+head(adhd_menarche_clean$wave_people)
+```
+
+### Import US_poverty_thresholds dataframe
+
+```{r import poverty df}
+US_poverty_thresholds <- read.csv("US_poverty_thresholds.csv")
+
+# Create a new column combining wave and people
+US_poverty_thresholds <- US_poverty_thresholds %>%
+  mutate(wave_people = paste0(wave, "_", people))
+
+# Print a preview of the updated dataset
+head(US_poverty_thresholds)
+```
+
+### Join poverty threshold from US_poverty_thresholds based on wave_people
+
+```{r merge poverty based on wave_people}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(US_poverty_thresholds, by = c("wave_people", "wave"))
+
+# View the first few rows of the updated dataframe
+head(adhd_menarche_clean)
+```
+
+## Create income-to-needs variable
+
+```{r create inr}
+# Calculate Income-to-Needs Ratio (INR)
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    inr = mean_income / poverty_threshold
+  )
+
+# View the first few rows of the updated dataframe
+head(adhd_menarche_clean$inr)
+```
+
+### Summary inr
+
+```{r summary inr}
+# Summary statistics by wave
+summary_stats_inr_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(inr, na.rm = TRUE),
+    median_score = median(inr, na.rm = TRUE),
+    sd_score = sd(inr, na.rm = TRUE),
+    min_score = min(inr, na.rm = TRUE),
+    max_score = max(inr, na.rm = TRUE),
+    n_valid = sum(!is.na(inr))
+  )
+
+print(summary_stats_inr_by_wave)
+```
+
+### Check missing inr data
+
+```{r NA inr}
+# Count missing height data by wave
+missing_inr_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_inr = sum(is.na(inr)),
+            total = n(),
+            missing_percent = (missing_inr / total) * 100)
+
+# Print the results
+print(missing_inr_by_wave)
+```
+
+### ADI processing
+
+### Summary ADI
+
+```{r summary adi}
+# Summary statistics by wave
+summary_stats_adi_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(reshist_addr1_adi_wsum, na.rm = TRUE),
+    median_score = median(reshist_addr1_adi_wsum, na.rm = TRUE),
+    sd_score = sd(reshist_addr1_adi_wsum, na.rm = TRUE),
+    min_score = min(reshist_addr1_adi_wsum, na.rm = TRUE),
+    max_score = max(reshist_addr1_adi_wsum, na.rm = TRUE)
+  )
+
+print(summary_stats_adi_by_wave)
+```
+
+### Check missing ADI data by wave 
+
+```{r NA adi}
+# Count missing led_l_adi_wsum data by wave
+missing_adi_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_adi = sum(is.na(reshist_addr1_adi_wsum)),
+            total = n(),
+            missing_percent = (missing_adi / total) * 100)
+
+# Print the results
+print(missing_adi_by_wave)
+```
+
+### Create ADI variable consistent across all waves
+
+```{r create adi variable}
+# Propagate reshist_addr1_adi_wsum from wave 0 across all waves for each participant
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  group_by(src_subject_id) %>%
+  mutate(adi = first(reshist_addr1_adi_wsum)) %>%
+  ungroup()
+
+head(adhd_menarche_clean$adi)
+```
+
+### Check adi missing by wave again
+
+```{r final check NA adi}
+# Count missing led_l_adi_wsum data by wave
+missing_adi_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_adi = sum(is.na(adi)),
+            total = n(),
+            missing_percent = (missing_adi / total) * 100)
+
+print(missing_adi_by_wave)
+```
+
+## Create stimulant use variable 
+
+### Step 1: search for stimulants in medication columns and create stimulant_meds vector 
+
+```{r search for stimulants}
+# list of stimulant medications
+stimulant_meds <- c(
+  "adderall",
+  "adzenys",
+  "amphetamine",
+  "concerta",
+  "daytrana",
+  "desoxyn",
+  "dexedrine",
+  "dexmethylphenidate",
+  "dextroamphetamine",
+  "dyanavel",
+  "evekeo",
+  "focalin",
+  "lisdexamfetamine",
+  "metadate",
+  "methamphetamine",
+  "methylin",
+  "methylphenidate",
+  "mydayis",
+  "procentra",
+  "quillichew",
+  "quillivant",
+  "ritalin",
+  "vyvanse",
+  "zenzedi"
+)
+```
+
+### Check all unique medications identified in dataset
+
+```{r check identified stimulants}
+# Ensure stimulant_meds are all lowercase
+stimulant_meds <- tolower(stimulant_meds)
+
+# Identify unique stimulant medications in the dataset (case-insensitive)
+detected_stimulants <- unique(
+  unlist(
+    apply(
+      adhd_menarche_clean[, paste0("med", 1:15, "_rxnorm_p")],
+      1,
+      function(row) {
+        row_lower <- tolower(row)  # Lowercase row for case-insensitive matching
+        meds_found <- sapply(stimulant_meds, function(med) {
+          grep(med, row_lower, fixed = TRUE, value = TRUE)
+        })
+        unlist(meds_found)
+      }
+    )
+  )
+)
+
+# Remove any empty strings from detected list
+detected_stimulants <- detected_stimulants[detected_stimulants != ""]
+
+# Print results
+print(detected_stimulants)
+```
+
+### Create new stimulant_use variable, 1 = yes and 0 = no to stimulant use
+
+```{r create stimulant_use}
+# create a new column indicating stimulant medication use
+adhd_menarche_clean$stimulant_use <- apply(
+  adhd_menarche_clean[, paste0("med", 1:15, "_rxnorm_p")], 
+  1, 
+  function(row) ifelse(
+    any(sapply(stimulant_meds, function(med) any(grepl(med, tolower(row), fixed = TRUE)))), 
+    1, 
+    0
+  )
+)
+
+# check the first few rows to confirm the new column
+head(adhd_menarche_clean[, c(paste0("med", 1:15, "_rxnorm_p"), "stimulant_use")])
+```
+
+### Count numbers of participants using stimulants at each wave
+
+```{r stimulant count by wave}
+# Count stimulant_use (1 = yes, 0 = no) by wave
+stimulant_use_counts <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    stimulant_use_yes = sum(stimulant_use == 1, na.rm = TRUE),
+    stimulant_use_no = sum(stimulant_use == 0, na.rm = TRUE),
+    total = n()
+  )
+
+# View the counts
+stimulant_use_counts
+```
+
+### Check why waves 3 and 4 have 0 stimulant use
+
+```{r check waves 3 4 stimulants}
+# Check missing meds data for waves 3 & 4
+adhd_menarche_clean %>%
+  filter(wave %in% c("wave_3", "wave_4")) %>%
+  group_by(wave) %>%
+  summarise(across(paste0("med", 1:15, "_rxnorm_p"), 
+                   list(
+                     missing_n = ~ sum(is.na(.)),
+                     missing_pct = ~ round(mean(is.na(.)) * 100, 2)
+                   )
+  ))
+
+```
+
+Seems like medication data were not recorded at waves 3 and 4
+
+## Cleaning for BMI
+
+### Check missing data for calculated height and weight variables
+
+```{r NA height and weight}
+# Count missing height data by wave
+missing_height_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_height = sum(is.na(anthroheightcalc)),
+            total = n(),
+            missing_percent = (missing_height / total) * 100)
+
+# Print the results
+print(missing_height_by_wave)
+
+
+missing_weight_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_weight = sum(is.na(anthroweightcalc)),
+            total = n(),
+            missing_percent = (missing_weight / total) * 100)
+
+# Print the results
+print(missing_weight_by_wave)
+```
+
+### Check missing height for non-calculated columns
+
+```{r check NA height non calc}
+# Count missing height data by wave
+missing_height1_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_height1 = sum(is.na(anthro_1_height_in)),
+            total = n(),
+            missing_percent = (missing_height1 / total) * 100)
+
+# Print the results
+print(missing_height1_by_wave)
+
+missing_height2_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_height2 = sum(is.na(anthro2heightin)),
+            total = n(),
+            missing_percent = (missing_height2 / total) * 100)
+
+# Print the results
+print(missing_height2_by_wave)
+
+missing_height3_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_height3 = sum(is.na(anthro3heightin)),
+            total = n(),
+            missing_percent = (missing_height3 / total) * 100)
+
+# Print the results
+print(missing_height3_by_wave)
+```
+
+### Check missing weight non-calculated variables
+
+```{r check NA weight non calc}
+# Count missing height data by wave
+missing_weight1_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_weight1 = sum(is.na(anthroweight1lb)),
+            total = n(),
+            missing_percent = (missing_weight1 / total) * 100)
+
+# Print the results
+print(missing_weight1_by_wave)
+
+missing_weight2_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_weight2 = sum(is.na(anthroweight2lb)),
+            total = n(),
+            missing_percent = (missing_weight2 / total) * 100)
+
+# Print the results
+print(missing_weight2_by_wave)
+
+missing_weight3_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_weight3 = sum(is.na(anthroweight3lb)),
+            total = n(),
+            missing_percent = (missing_weight3 / total) * 100)
+
+# Print the results
+print(missing_weight3_by_wave)
+```
+
+## Create BMI variable
+
+```{r create BMI variable}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(bmi = (anthroweightcalc / (anthroheightcalc^2)) * 703)
+
+head(adhd_menarche_clean$bmi)
+```
+
+### Summary BMI by wave 
+
+```{r summary bmi}
+# Summary BMI statistics by wave
+summary_stats_bmi_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    mean_score = mean(bmi, na.rm = TRUE),
+    median_score = median(bmi, na.rm = TRUE),
+    sd_score = sd(bmi, na.rm = TRUE),
+    min_score = min(bmi, na.rm = TRUE),
+    max_score = max(bmi, na.rm = TRUE),
+    n_valid = sum(!is.na(bmi)),
+    n_missing = sum(is.na(bmi)),
+    total = n(),
+    missing_percent = (sum(is.na(bmi)) / n()) * 100
+  )
+
+print(summary_stats_bmi_by_wave)
+```
+
+### Check highly unlikely BMI values at baseline
+
+```{r check bmi baseline <10}
+# Filter for wave_0 and BMI < 10, then count
+n_bmi_under_10_wave0 <- adhd_menarche_clean %>%
+  filter(wave == "wave_0", bmi < 10) %>%
+  summarise(count = n())
+
+# Print the result
+print(n_bmi_under_10_wave0)
+```
+
+### Convert bmi < 10 to NA
+
+```{r convert bmi <10 to NA}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(bmi = if_else(wave == "wave_0" & bmi < 10, NA_real_, bmi))
+```
+
+### Create baseline bmi variable
+
+```{r create baseline bmi variable}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  group_by(src_subject_id) %>%
+  mutate(bmi_baseline = first(na.omit(bmi[wave == "wave_0"]))) %>%
+  ungroup()
+
+head(adhd_menarche_clean$bmi_baseline)
+```
+
+## Race/ethnicity processing
+
+### Create ethnicity variable and fill in for all waves for each participant
+
+```{r create ethnicity variable}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(ethnicity = race_ethnicity) %>% 
+  group_by(src_subject_id) %>%
+  mutate(ethnicity = ifelse(all(is.na(ethnicity)), 
+                                 NA_real_, max(ethnicity, na.rm = TRUE))) %>%
+  ungroup()
+
+head(adhd_menarche_clean$ethnicity)
+```
+
+### Race/ethnicity missing
+
+```{r NA ethnicity}
+# Count missing menarche data by wave
+missing_ethnicity_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(missing_ethnicity = sum(is.na(ethnicity)),
+            total = n(),
+            missing_percent = (missing_ethnicity / total) * 100)
+
+# Print the results
+print(missing_ethnicity_by_wave)
+```
+
+## Family and side id processing
+
+### Create family and site id variables and propagate across all waves
+
+```{r family/site id variables}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  group_by(src_subject_id) %>%
+  mutate(family_id = first(na.omit(rel_family_id[wave == "wave_0"]))) %>%
+  ungroup()
+
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  group_by(src_subject_id) %>%
+  mutate(site_id = first(na.omit(site_id_l[wave == "wave_0"]))) %>%
+  ungroup()
+```
+
+## Check structure of final cleaned dataset
+
+```{r check final df}
+str(adhd_menarche_clean)
+```
+
+### Export copy of fully cleaned df
+
+```{r export clean df}
+write.csv(adhd_menarche_clean, file = "2_adhd_menarche_clean.csv", row.names = FALSE)
+```

@@ -1,0 +1,482 @@
+---
+title: "ABCD ADHD menarche all longitudinal model sensitivity analyses"
+format: html
+editor: visual
+---
+
+## Load libraries
+
+```{r load libraries}
+library(tidyverse)
+library(knitr)
+library(tidyr)
+library(readxl)
+library(readr)
+library(brms)
+library(pscl)
+library(posterior)
+library(rstan)
+library(bayesplot)
+library(tidybayes)
+library(emmeans)
+```
+
+## Import imputed and orginal datasets
+
+```{r read csv}
+imp_df <- read_csv("imputed_dataset.csv", show_col_types = FALSE)
+orig_df <- read_csv("2_adhd_menarche_clean.csv", show_col_types = FALSE)
+```
+
+### Check dataframe heads
+
+```{r check head}
+head(imp_df)
+head(orig_df)
+```
+
+### Grand mean centre continuous predictors in original dataframe
+
+```{r grand mean centre}
+# Variables to grand mean center
+vars_to_center <- c("age_years", "inr", "cbcl_scr_syn_attention_r",
+                    "cbcl_scr_syn_internal_r", "cbcl_scr_syn_external_r",  
+                    "pds_f4_p", "bmi_baseline")
+
+# Compute grand means
+grand_means <- orig_df %>%
+  summarise(across(all_of(vars_to_center), \(x) mean(x, na.rm = TRUE)))
+
+# Center the variables
+orig_df <- orig_df %>%
+  mutate(across(all_of(vars_to_center), 
+                ~ . - grand_means[[cur_column()]], 
+                .names = "{.col}_c"))
+```
+
+### Pivot to wide format based on wave
+
+```{r pivot wide}
+# Pivot to wide format for longitudinal analyses
+imp_df_wide <- imp_df %>%
+  pivot_wider(
+    id_cols = src_subject_id,
+    names_from = wave,
+    names_glue = "{.value}_{wave}",
+    values_from = -c(src_subject_id, wave)
+  )
+
+orig_df_wide <- orig_df %>%
+  pivot_wider(
+    id_cols = src_subject_id,
+    names_from = wave,
+    names_glue = "{.value}_{wave}",
+    values_from = -c(src_subject_id, wave)
+  )
+```
+
+### Convert to factors: site ID, family ID, ethnicity, and menarche status factors
+
+```{r factors}
+imp_df_wide <- imp_df_wide %>%
+  mutate(
+    family_id = as.factor(family_id_wave_0),
+    site_id = as.factor(site_id_wave_0),
+    ethnicity = as.factor(ethnicity_wave_0),
+    adhd_diagnosis = as.factor(adhd_diagnosis_wave_0),
+    ethnicity_wave_0 <- as.factor(ethnicity_wave_0),
+    menarche_status_p_wave_2 <- as.factor(imp_df_wide$menarche_status_p_wave_2),
+  )
+
+orig_df_wide <- orig_df_wide %>%
+  mutate(
+    family_id = as.factor(family_id_wave_0),
+    site_id = as.factor(site_id_wave_0),
+    ethnicity = as.factor(ethnicity_wave_0),
+    adhd_diagnosis = as.factor(adhd_diagnosis_wave_0),
+    ethnicity_wave_0 <- as.factor(ethnicity_wave_0),
+    menarche_status_p_wave_2 <- as.factor(imp_df_wide$menarche_status_p_wave_2)
+  )
+```
+
+### Convert to integers: all outcomes
+
+```{r outcomes as integers}
+imp_df_wide <- imp_df_wide %>%
+  mutate(
+    cbcl_scr_syn_attention_r_wave_3 = as.integer(cbcl_scr_syn_attention_r_wave_3)
+  )
+
+orig_df_wide <- orig_df_wide %>%
+  mutate(
+    cbcl_scr_syn_attention_r_wave_3 = as.integer(cbcl_scr_syn_attention_r_wave_3)
+  )
+```
+
+### Check structure of wide dataframes
+
+```{r check structure wide df}
+str(imp_df_wide)
+str(orig_df_wide)
+```
+
+### Identify all participants with stimulant medications recorded at any wave in imputed dataframe
+
+```{r identitfy stimulant medication participants}
+# Identify and count participants who ever used stimulant medications
+stimulant_users <- imp_df %>%
+  filter(stimulant_use == 1) %>%
+  distinct(src_subject_id)
+
+# Count how many unique participants used stimulants
+num_stimulant_users <- nrow(stimulant_users)
+
+# Print the count
+cat("Number of participants with stimulant use:", num_stimulant_users, "\n")
+```
+
+### Remove participants using stimulant medications for nomeds dataset
+
+```{r remove participants using stimulants}
+# Remove those participants from the dataframe
+imp_df_nomeds <- imp_df %>%
+  filter(!src_subject_id %in% stimulant_users$src_subject_id)
+
+# Identify and count participants who ever used stimulant medications
+stimulant_users_check <- imp_df_nomeds %>%
+  filter(stimulant_use == 1) %>%
+  distinct(src_subject_id)
+
+# Count how many unique participants used stimulants
+num_stimulant_users <- nrow(stimulant_users_check)
+
+# Print the count
+cat("Number of participants with stimulant use:", num_stimulant_users, "\n")
+```
+
+### Check nomeds df structure
+
+```{r str nomeds df}
+str(imp_df_nomeds)
+```
+
+### Nomeds: pivot to wide
+
+```{r pivot wide}
+imp_df_nomeds_wide <- imp_df_nomeds %>%
+  pivot_wider(
+    id_cols = src_subject_id,
+    names_from = wave,
+    names_glue = "{.value}_{wave}",
+    values_from = -c(src_subject_id, wave)
+  )
+```
+
+### Convert to factors: site ID, family ID, ethnicity, menarche status and ethnicity factors
+
+```{r factors}
+imp_df_nomeds_wide <- imp_df_nomeds_wide %>%
+  mutate(
+    family_id = as.factor(family_id_wave_0),
+    site_id = as.factor(site_id_wave_0),
+    ethnicity = as.factor(ethnicity_wave_0),
+    adhd_diagnosis = as.factor(adhd_diagnosis_wave_0),
+    menarche_status_p_wave_2 <- as.factor(menarche_status_p_wave_2),
+    ethnicity_wave_0 <- as.factor(ethnicity_wave_0)
+  )
+```
+
+### Convert to integers: all outcomes
+
+```{r outcomes as integers}
+imp_df_nomeds_wide <- imp_df_nomeds_wide %>%
+  mutate(
+    cbcl_scr_syn_attention_r_wave_3 = as.integer(cbcl_scr_syn_attention_r_wave_3)
+  )
+```
+
+### Check structure of nomeds wide df
+
+```{r structure nomeds wide}
+str(imp_df_nomeds_wide)
+```
+
+## Model 1 longitudinal original cleaned dataframe
+
+```{r model 1 long orig}
+model_1_long_orig <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    menarche_status_p_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1| family_id) + (1 | site_id),
+  data = orig_df_wide,  
+  family = poisson(),  
+  prior = set_prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1 long output original
+
+```{r model 1 long orig long output}
+# Model R2
+bayes_R2(model_1_long_orig)
+
+# Model estimates
+print(model_1_long_orig, digits = 4)
+```
+
+## Model 1b longitudinal original cleaned dataframe
+
+```{r model 1b long orig}
+model_1b_long_orig <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = orig_df_wide,  
+  family = poisson(),  
+  prior = set_prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1b long output original
+
+```{r model 1b long orig long output}
+# Model R2
+bayes_R2(model_1b_long_orig)
+
+# Model estimates
+print(model_1b_long_orig, digits = 4)
+```
+
+## Model 1 longitudinal covarying for baseline BMI
+
+```{r model 1 long bmi}
+model_1_long_bmi <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    menarche_status_p_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 + bmi_baseline_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = set_prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1 long output bmi
+
+```{r model 1 long bmi long output}
+# Model R2
+bayes_R2(model_1_long_bmi)
+
+# Model estimates
+print(model_1_long_bmi, digits = 4)
+```
+
+## Model 1b longitudinal covarying for baseling BMI
+
+```{r model 1b long bmi}
+model_1b_long_bmi <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 + bmi_baseline_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1b long output bmi
+
+```{r model 1b long bmi long output}
+# Model R2
+bayes_R2(model_1b_long_bmi)
+
+# Model estimates
+print(model_1b_long_bmi, digits = 4)
+```
+
+## Model 1 longitudinal prior 1 (normal 0, 0.25)
+
+```{r model 1 long prior 1}
+model_1_long_prior1 <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    menarche_status_p_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 0.25)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1 long output prior 1
+
+```{r model 1 long prior 1 long output}
+# Model R2
+bayes_R2(model_1_long_prior1)
+
+# Model estimates
+print(model_1_long_prior1, digits = 4)
+```
+
+## Model 1b longitudinal prior 1 (normal 0, 0.25)
+
+```{r model 1b long prior 1}
+model_1b_long_prior1 <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 0.25)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1b long output prior 1
+
+```{r model 1b long prior 1 long output}
+# Model R2
+bayes_R2(model_1b_long_prior1)
+
+# Model estimates
+print(model_1b_long_prior1, digits = 4)
+```
+
+## Model 1 longitudinal prior 2 (normal 0, 10)
+
+```{r model 1 long prior 2}
+model_1_long_prior2 <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    menarche_status_p_wave_2 +
+    age_years_c_wave_2 + ethnicity_wave_0 + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 10)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1 long output prior 2
+
+```{r model 1 long prior 2 long output}
+# Model R2
+bayes_R2(model_1_long_prior2)
+
+# Model estimates
+print(model_1_long_prior2, digits = 4)
+```
+
+## Model 1b longitudinal prior 2 (normal 0, 10)
+
+```{r model 1b long prior 2}
+model_1b_long_prior2 <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 +
+    age_years_c_wave_2 + ethnicity_wave_0 + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 10)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1b long output prior 2
+
+```{r model 1b long prior 2 long output}
+# Model R2
+bayes_R2(model_1b_long_prior2)
+
+# Model estimates
+print(model_1b_long_prior2, digits = 4)
+```
+
+## Model 1 longitudinal excluding participants taking stimulant medications
+
+```{r model 1 long nomeds}
+model_1_long_nomeds <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    menarche_status_p_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_nomeds_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1 long output no meds
+
+```{r model 1 long nomeds long output}
+# Model R2
+bayes_R2(model_1_long_nomeds)
+
+# Model estimates
+print(model_1_long_nomeds, digits = 4)
+```
+
+## Model 1b longitudinal excluding participants taking stimulant medication
+
+```{r model 1b long nomeds}
+model_1b_long_nomeds <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_nomeds_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Model 1b long output no meds
+
+```{r model 1b long nomeds long output}
+# Model R2
+bayes_R2(model_1b_long_nomeds)
+
+# Model estimates
+print(model_1b_long_nomeds, digits = 4)
+```
