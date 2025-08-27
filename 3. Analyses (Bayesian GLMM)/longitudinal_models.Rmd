@@ -1,0 +1,626 @@
+---
+title: "ABCD ADHD menarche analysis: Models 1 - 5 longitudinal"
+format: html
+editor: visual
+---
+
+## Load libraries
+
+```{r load libraries, results='hide'}
+library(tidyverse)
+library(knitr)
+library(tidyr)
+library(readxl)
+library(readr)
+library(brms)
+library(pscl)
+library(posterior)
+library(rstan)
+library(bayesplot)
+library(tidybayes)
+library(emmeans)
+```
+
+## Import imputed dataset
+
+```{r read csv}
+# Read csv
+imp_df <- read_csv("imputed_dataset.csv", show_col_types = FALSE)
+```
+
+### Check imputed dataframe
+
+```{r check head}
+head(imp_df)
+```
+
+### Pivot to wide format based on wave
+
+```{r pivot wide}
+# Pivot to wide format for longitudinal analyses
+imp_df_wide <- imp_df %>%
+  pivot_wider(
+    id_cols = src_subject_id,
+    names_from = wave,
+    names_glue = "{.value}_{wave}",
+    values_from = -c(src_subject_id, wave)
+  )
+```
+
+### Convert to factors: site ID, family ID, ethnicity, and menarche status factors
+
+```{r factors}
+imp_df_wide <- imp_df_wide %>%
+  mutate(
+    family_id = as.factor(family_id_wave_0),
+    site_id = as.factor(site_id_wave_0),
+    ethnicity = as.factor(ethnicity_wave_0),
+    adhd_diagnosis = as.factor(adhd_diagnosis_wave_0),
+    menarche_status_p_wave_2 <- as.factor(imp_df_wide$menarche_status_p_wave_2)
+  )
+```
+
+### Convert to integers: all outcomes
+
+```{r outcomes as integers}
+imp_df_wide <- imp_df_wide %>%
+  mutate(
+    cbcl_scr_syn_attention_r_wave_3 = as.integer(cbcl_scr_syn_attention_r_wave_3),
+    cbcl_scr_syn_internal_r_wave_3 = as.integer(cbcl_scr_syn_internal_r_wave_3),
+    cbcl_scr_syn_external_r_wave_3 = as.integer(cbcl_scr_syn_external_r_wave_3)
+  )
+```
+
+### Check head of wide dataframe
+
+```{r check head wide df}
+head(imp_df_wide)
+```
+
+### Check wide imputed df structure
+
+```{r check structure wide df}
+str(imp_df_wide)
+```
+
+## Model 1 longitudinal
+
+```{r model 1 long}
+model_1_long <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    menarche_status_p_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = set_prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 1 long
+
+```{r save model 1 long}
+saveRDS(model_1_long, file = "model_1_long.rds")
+```
+
+### Model 1 long output
+
+```{r model 1 long output}
+# Model R2
+bayes_R2(model_1_long)
+
+# Model estimates
+print(model_1_long, digits = 4)
+```
+
+### Model 1 long posterior predictive diagnostics
+
+```{r model 1 long ppcs}
+# Posterior predictive checks
+pp_check(model_1_long, type = "bars", ndraws = 100)
+pp_check(model_1_long, type = "hist", ndraws = 10)
+pp_check(model_1_long, type = "error_hist")
+pp_check(model_1_long, type = "stat", stat = "mean")
+pp_check(model_1_long, type = "stat", stat = "sd")
+pp_check(model_1_long, type = "scatter_avg")
+```
+
+### Model 1 long MCMC sampling diagnostics
+
+```{r plot model long 1}
+plot(model_1_long)
+```
+
+## Model 1b longitudinal
+
+```{r model 1b long}
+model_1b_long <- brm(
+  cbcl_scr_syn_attention_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_attention_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 1b long
+
+```{r save model 1b long}
+saveRDS(model_1b_long, file = "model_1b_long.rds")
+```
+
+### Model 1b long output
+
+```{r model 1b long output}
+# Model R2
+bayes_R2(model_1b_long)
+
+# Model estimates
+print(model_1b_long, digits = 4)
+```
+
+### Model 1b long posterior predictive diagnostics
+
+```{r model 1b long ppcs}
+# Posterior predictive checks
+pp_check(model_1b_long, type = "bars", ndraws = 100)
+pp_check(model_1b_long, type = "hist", ndraws = 10)
+pp_check(model_1b_long, type = "error_hist")
+pp_check(model_1b_long, type = "stat", stat = "mean")
+pp_check(model_1b_long, type = "stat", stat = "sd")
+pp_check(model_1b_long, type = "scatter_avg")
+```
+
+### Model 1b long MCMC sampling diagnostics
+
+```{r plot model long 1b}
+plot(model_1b_long)
+```
+
+## Model 2 longitudinal
+
+```{r model 2 long}
+model_2_long <- brm(
+  cbcl_scr_syn_internal_r_wave_3 ~ 
+    menarche_status_p_wave_2 * adhd_diagnosis_wave_0 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 +
+    cbcl_scr_syn_internal_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 2 long
+
+```{r save model 2 long}
+saveRDS(model_2_long, file = "model_2_long.rds")
+```
+
+### Model 2 long output
+
+```{r model 2 long output}
+# Model R2
+bayes_R2(model_2_long)
+
+# Model estimates
+print(model_2_long, digits = 4)
+```
+
+### Model 2 long posterior predictive diagnostics
+
+```{r model 2 long ppcs}
+# Posterior predictive checks
+pp_check(model_2_long, type = "bars", ndraws = 100)
+pp_check(model_2_long, type = "hist", ndraws = 10)
+pp_check(model_2_long, type = "error_hist")
+pp_check(model_2_long, type = "stat", stat = "mean")
+pp_check(model_2_long, type = "stat", stat = "sd")
+pp_check(model_2_long, type = "scatter_avg")
+```
+
+### Model 2 long MCMC sampling diagnostics
+
+```{r plot model long 2}
+plot(model_2_long)
+```
+
+## Model 2b longitudinal
+
+```{r model 2b long}
+model_2b_long <- brm(
+  cbcl_scr_syn_internal_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 * adhd_diagnosis +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_internal_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+  )
+```
+
+### Save model 2b long
+
+```{r save model 2b long}
+saveRDS(model_2b_long, file = "model_2b_long.rds")
+```
+
+### Model 2b long output
+
+```{r model 2b long output}
+# Model R2
+bayes_R2(model_2b_long)
+
+# Model estimates
+print(model_2b_long, digits = 4)
+```
+
+### Model 2b long posterior predictive diagnostics
+
+```{r model 2b long ppcs}
+# Posterior predictive checks
+pp_check(model_2b_long, type = "bars", ndraws = 100)
+pp_check(model_2b_long, type = "hist", ndraws = 10)
+pp_check(model_2b_long, type = "error_hist")
+pp_check(model_2b_long, type = "stat", stat = "mean")
+pp_check(model_2b_long, type = "stat", stat = "sd")
+pp_check(model_2b_long, type = "scatter_avg")
+```
+
+### Model 2b long MCMC sampling diagnostics
+
+```{r plot model long 2b}
+plot(model_2b_long)
+```
+
+## Model 3 longitudinal
+
+```{r model 3 long}
+model_3_long <- brm(
+  cbcl_scr_syn_external_r_wave_3 ~ 
+    menarche_status_p_wave_2 * adhd_diagnosis +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_external_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 3 long
+
+```{r save model 3 long}
+saveRDS(model_3_long, file = "model_3_long.rds")
+```
+
+### Model 3 long output
+
+```{r model 3 long output}
+# Model R2
+bayes_R2(model_3_long)
+
+# Model estimates
+print(model_3_long, digits = 4)
+```
+
+### Model 3 long posterior predictive diagnostics
+
+```{r model 3 long ppcs}
+# Posterior predictive checks
+pp_check(model_3_long, type = "bars", ndraws = 100)
+pp_check(model_3_long, type = "hist", ndraws = 10)
+pp_check(model_3_long, type = "error_hist")
+pp_check(model_3_long, type = "stat", stat = "mean")
+pp_check(model_3_long, type = "stat", stat = "sd")
+pp_check(model_3_long, type = "scatter_avg")
+```
+
+### Model 3 long MCMC sampling diagnostics
+
+```{r plot model long 3}
+plot(model_3_long)
+```
+
+## Model 3b longitudinal
+
+```{r model 3b long}
+model_3b_long <- brm(
+  cbcl_scr_syn_external_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 * adhd_diagnosis +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_external_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 3b long
+
+```{r save model 3b long}
+saveRDS(model_3b_long, file = "model_3b_long.rds")
+```
+
+### Model 3b long output
+
+```{r model 3b long output}
+# Model R2
+bayes_R2(model_3b_long)
+
+# Model estimates
+print(model_3b_long, digits = 4)
+```
+
+### Model 3b long posterior predictive diagnostics
+
+```{r model 3b long ppcs}
+# Posterior predictive checks
+pp_check(model_3b_long, type = "bars", ndraws = 100)
+pp_check(model_3b_long, type = "hist", ndraws = 10)
+pp_check(model_3b_long, type = "error_hist")
+pp_check(model_3b_long, type = "stat", stat = "mean")
+pp_check(model_3b_long, type = "stat", stat = "sd")
+pp_check(model_3b_long, type = "scatter_avg")
+```
+
+### Model 3b long MCMC sampling diagnostics
+
+```{r plot model long 3b}
+plot(model_3b_long)
+```
+
+## Model 4 longitudinal
+
+```{r model 4 long}
+model_4_long <- brm(
+  cbcl_scr_syn_internal_r_wave_3 ~ 
+    menarche_status_p_wave_2 * cbcl_scr_syn_attention_r_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_internal_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 4 long
+
+```{r save model 4 long}
+saveRDS(model_4_long, file = "model_4_long.rds")
+```
+
+### Model 4 long output
+
+```{r model 4 long output}
+# Model R2
+bayes_R2(model_4_long)
+
+# Model estimates
+print(model_4_long, digits = 4)
+```
+
+### Model 4 long posterior predictive diagnostics
+
+```{r model 4 long ppcs}
+# Posterior predictive checks
+pp_check(model_4_long, type = "bars", ndraws = 100)
+pp_check(model_4_long, type = "hist", ndraws = 10)
+pp_check(model_4_long, type = "error_hist")
+pp_check(model_4_long, type = "stat", stat = "mean")
+pp_check(model_4_long, type = "stat", stat = "sd")
+pp_check(model_4_long, type = "scatter_avg")
+```
+
+### Model 4 long MCMC sampling diagnostics
+
+```{r plot model long 4}
+plot(model_4_long)
+```
+
+## Model 4b longitudinal
+
+```{r model 4 long}
+model_4b_long <- brm(
+  cbcl_scr_syn_internal_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 * cbcl_scr_syn_attention_r_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_internal_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 4b long
+
+```{r save model 4b long}
+saveRDS(model_4b_long, file = "model_4b_long.rds")
+```
+
+### Model 4b long output
+
+```{r model 4b long output}
+# Model R2
+bayes_R2(model_4b_long)
+
+# Model estimates
+print(model_4b_long, digits = 4)
+```
+
+### Model 4b long posterior predictive diagnostics
+
+```{r model 4b long ppcs}
+# Posterior predictive checks
+pp_check(model_4b_long, type = "bars", ndraws = 100)
+pp_check(model_4b_long, type = "hist", ndraws = 10)
+pp_check(model_4b_long, type = "error_hist")
+pp_check(model_4b_long, type = "stat", stat = "mean")
+pp_check(model_4b_long, type = "stat", stat = "sd")
+pp_check(model_4b_long, type = "scatter_avg")
+```
+
+### Model 4b long MCMC sampling diagnostics
+
+```{r plot model long 4b}
+plot(model_4b_long)
+```
+
+## Model 5 longitudinal
+
+```{r model 5 long}
+model_5_long <- brm(
+  cbcl_scr_syn_external_r_wave_3 ~ 
+    menarche_status_p_wave_2 * cbcl_scr_syn_attention_r_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_external_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  control = list(adapt_delta = 0.85),
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 5 long
+
+```{r save model 5 long}
+saveRDS(model_5_long, file = "model_5_long.rds")
+```
+
+### Model 5 long output
+
+```{r model 5 long output}
+# Model R2
+bayes_R2(model_5_long)
+
+# Model estimates
+print(model_5_long, digits = 4)
+```
+
+### Model 5 long posterior predictive diagnostics
+
+```{r model 5 long ppcs}
+# Posterior predictive checks
+pp_check(model_5_long, type = "bars", ndraws = 100)
+pp_check(model_5_long, type = "hist", ndraws = 10)
+pp_check(model_5_long, type = "error_hist")
+pp_check(model_5_long, type = "stat", stat = "mean")
+pp_check(model_5_long, type = "stat", stat = "sd")
+pp_check(model_5_long, type = "scatter_avg")
+```
+
+### Model 5 long MCMC sampling diagnostics
+
+```{r plot model long 5}
+plot(model_5_long)
+```
+
+## Model 5b longitudinal
+
+```{r model 5b long}
+model_5b_long <- brm(
+  cbcl_scr_syn_external_r_wave_3 ~ 
+    pds_f4_p_c_wave_2 * cbcl_scr_syn_attention_r_c_wave_2 +
+    age_years_c_wave_2 + ethnicity + inr_c_wave_0 + 
+    cbcl_scr_syn_external_r_c_wave_0 +
+    (1 | family_id) + (1 | site_id),
+  data = imp_df_wide,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  control = list(adapt_delta = 0.85),
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save model 5b long
+
+```{r save model 5b long}
+saveRDS(model_5b_long, file = "model_5b_long.rds")
+```
+
+### Model 5b long output
+
+```{r model 5b long output}
+# Model R2
+bayes_R2(model_5b_long)
+
+# Model estimates
+print(model_5b_long, digits = 4)
+```
+
+### Model 5b long posterior predictive diagnostics
+
+```{r model 5b long ppcs}
+# Posterior predictive checks
+pp_check(model_5b_long, type = "bars", ndraws = 100)
+pp_check(model_5b_long, type = "hist", ndraws = 10)
+pp_check(model_5b_long, type = "error_hist")
+pp_check(model_5b_long, type = "stat", stat = "mean")
+pp_check(model_5b_long, type = "stat", stat = "sd")
+pp_check(model_5b_long, type = "scatter_avg")
+```
+
+### Model 5b long MCMC sampling diagnostics
+
+```{r plot model long 5b}
+plot(model_5b_long)
+```
+
+### Model 5b interaction analysis
+
+```{r model 5b interaction}
+# Get estimated marginal trends (simple slopes)
+emtrends_5b_clean <- emtrends(
+  model_5b_long,
+  var = "cbcl_scr_syn_attention_r_c_wave_2",
+  at = list(
+    pds_f4_p_c_wave_2 = c(-1, 0, 1),
+    age_years_c_wave_2 = 0,
+    ethnicity = 1,
+    inr_c_wave_0 = 0,
+    cbcl_scr_syn_external_r_c_wave_0 = 0
+  )
+)
+
+# View simple slopes
+summary(emtrends_5b_clean, infer = c(TRUE, TRUE))
+```

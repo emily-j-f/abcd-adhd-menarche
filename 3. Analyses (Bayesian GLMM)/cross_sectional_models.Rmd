@@ -1,0 +1,634 @@
+---
+title: "ABCD ADHD menarche analysis: Models 1 - 5 cross-sectional"
+format: html
+editor: visual
+---
+
+## Load libraries
+
+```{r load libraries}
+library(tidyverse)
+library(knitr)
+library(tidyr)
+library(readxl)
+library(readr)
+library(brms)
+library(pscl)
+library(posterior)
+library(rstan)
+library(bayesplot)
+library(tidybayes)
+library(emmeans)
+```
+
+## Import imputed dataframe
+
+```{r import imputed dataframe}
+imp_df <- read_csv("imputed_dataset.csv", show_col_types = FALSE)
+```
+
+### Check imputed dataframe
+
+```{r check head}
+head(imp_df)
+```
+
+### Convert to factors: subject ID, site ID, family ID, ethnicity, and menarche status
+
+```{r factors}
+imp_df <- imp_df %>%
+  mutate(across(c(src_subject_id, family_id, site_id, ethnicity, menarche_status_p, adhd_diagnosis), as.factor))
+```
+
+### Convert to integers: all outcomes
+
+```{r outcomes as integers}
+imp_df <- imp_df %>%
+  mutate(across(c(cbcl_scr_syn_attention_r, cbcl_scr_syn_internal_r, cbcl_scr_syn_external_r), as.integer))
+```
+
+### Create observation ID variable
+
+```{r obs id}
+imp_df$obs_id <- seq_len(nrow(imp_df))
+```
+
+### Structure of dataframe
+
+```{r df structure}
+str(imp_df)
+```
+
+## Model 1
+
+```{r model 1}
+model_1 <- brm(
+  cbcl_scr_syn_attention_r ~ menarche_status_p
+    + age_years_c + ethnicity + inr_c +
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id),
+  data = imp_df,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2,
+  seed = 1234
+)
+```
+
+### Save model 1
+
+```{r save model 1}
+saveRDS(model_1, file = "model_1.rds")
+```
+
+### Model 1 output
+
+```{r model 1 output}
+# Model R2
+bayes_R2(model_1)
+
+# Model estimates
+print(model_1, digits = 4)
+```
+
+### Model 1 posterior predictive diagnostics
+
+```{r model 1 ppcs}
+# Posterior predictive checks
+pp_check(model_1, type = "bars", ndraws = 100)
+pp_check(model_1, type = "hist", ndraws = 10)
+pp_check(model_1, type = "error_hist")
+pp_check(model_1, type = "stat", stat = "mean")
+pp_check(model_1, type = "stat", stat = "sd")
+pp_check(model_1, type = "scatter_avg")
+```
+
+### Model 1 MCMC sampling diagnostics
+
+```{r plot model 1}
+plot(model_1)
+```
+
+## Model 1b
+
+```{r model 1b}
+model_1b <- brm(
+  cbcl_scr_syn_attention_r ~ pds_f4_p_c
+  + age_years_c + ethnicity + inr_c +
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id),
+  data = imp_df,  
+  family = poisson(),
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234 
+)
+```
+
+### Save Model 1b
+
+```{r save model 1b}
+saveRDS(model_1b, file = "model_1b.rds")
+```
+
+### Model 1b output
+
+```{r model 1b output}
+# Model R2
+bayes_R2(model_1b)
+
+# Model estimates
+print(model_1b, digits = 4)
+```
+
+### Model 1b posterior predictive diagnostics
+
+```{r model 1b ppcs}
+# Posterior predictive checks
+pp_check(model_1b, type = "bars", ndraws = 100)
+pp_check(model_1b, type = "hist", ndraws = 10)
+pp_check(model_1b, type = "error_hist")
+pp_check(model_1b, type = "stat", stat = "mean")
+pp_check(model_1b, type = "stat", stat = "sd")
+pp_check(model_1b, type = "scatter_avg")
+```
+
+### Model 1b MCMC sampling diagnostics
+
+```{r plot model 1b}
+plot(model_1b)
+```
+
+## Model 2
+
+```{r model 2}
+model_2 <- brm(
+  cbcl_scr_syn_internal_r ~  menarche_status_p * adhd_diagnosis
+  + age_years_c + ethnicity + inr_c +
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id),
+  data = imp_df,  
+  family = poisson(),
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234 
+)
+```
+
+### Save Model 2
+
+```{r save model 2}
+saveRDS(model_2, file = "model_2.rds")
+```
+
+### Model 2 output
+
+```{r model 2 output}
+# Model R2
+bayes_R2(model_2)
+
+# Model estimates
+print(model_2, digits = 4)
+```
+
+### Model 2 posterior predictive diagnostics
+
+```{r model 2 ppcs}
+# Posterior predictive checks
+pp_check(model_2, type = "bars", ndraws = 100)
+pp_check(model_2, type = "hist", ndraws = 10)
+pp_check(model_2, type = "error_hist")
+pp_check(model_2, type = "stat", stat = "mean")
+pp_check(model_2, type = "stat", stat = "sd")
+pp_check(model_2, type = "scatter_avg")
+```
+
+### Model 2 MCMC sampling diagnostics
+
+```{r plot model 2}
+plot(model_2)
+```
+
+### Model 2 interaction analysis
+
+```{r model 2 interaction}
+# Get marginal means for each combination of adhd_diagnosis and menarche_status_p
+emm_2 <- emmeans(model_2, ~ adhd_diagnosis * menarche_status_p)
+
+# View estimated means for each group
+summary(emm_2)
+
+# Pairwise comparisons of menarche effect within each ADHD status
+contrast(emm_2, method = "revpairwise", by = "adhd_diagnosis")
+```
+
+## Model 2b
+
+```{r model 2b}
+model_2b <- brm(
+  cbcl_scr_syn_internal_r ~  pds_f4_p_c * adhd_diagnosis 
+    + age_years_c + ethnicity + inr_c + 
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id), 
+  data = imp_df,
+  family = poisson(),
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save Model 2b
+
+```{r save model 2b}
+saveRDS(model_2b, file = "model_2b.rds")
+```
+
+### Model 2b output
+
+```{r model 2 output}
+# Model R2
+bayes_R2(model_2b)
+
+# Model estimates
+print(model_2b, digits = 4)
+```
+
+### Model 2b posterior predictive diagnostics
+
+```{r model 2b ppcs}
+# Posterior predictive checks
+pp_check(model_2b, type = "bars", ndraws = 100)
+pp_check(model_2b, type = "hist", ndraws = 10)
+pp_check(model_2b, type = "error_hist")
+pp_check(model_2b, type = "stat", stat = "mean")
+pp_check(model_2b, type = "stat", stat = "sd")
+pp_check(model_2b, type = "scatter_avg")
+```
+
+### Model 2b MCMC sampling diagnostics
+
+```{r plot model 2b}
+plot(model_2b)
+```
+
+### Model 2b interaction analysis
+
+```{r model 2b interaction}
+# Get estimated marginal trends (simple slopes)
+emtrends_2b <- emtrends(model_2b, 
+                       pairwise ~ adhd_diagnosis, 
+                       var = "pds_f4_p_c")
+
+# View the simple slopes
+summary(emtrends_2b)
+```
+
+## Model 3
+
+```{r model 3}
+model_3 <- brm(
+  cbcl_scr_syn_external_r ~ menarche_status_p * adhd_diagnosis 
+  + age_years_c + ethnicity + inr_c +
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id),
+  data = imp_df,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234 
+)
+```
+
+### Save Model 3
+
+```{r save model 3}
+saveRDS(model_3, file = "model_3.rds")
+```
+
+### Model 3 output
+
+```{r model 3 output}
+# Model R2
+bayes_R2(model_3)
+
+# Model estimates
+print(model_3, digits = 4)
+```
+
+### Model 3 posterior predictive diagnostics
+
+```{r model 3 ppcs}
+# Posterior predictive checks
+pp_check(model_3, type = "bars", ndraws = 100)
+pp_check(model_3, type = "hist", ndraws = 10)
+pp_check(model_3, type = "error_hist")
+pp_check(model_3, type = "stat", stat = "mean")
+pp_check(model_3, type = "stat", stat = "sd")
+pp_check(model_3, type = "scatter_avg")
+```
+
+### Model 3 MCMC sampling diagnostics
+
+```{r plot model 3}
+plot(model_3)
+```
+
+### Model 3 interaction analysis
+
+```{r model 3 interaction}
+# Get marginal means for each combination of adhd_diagnosis and menarche_status_p
+emm_3 <- emmeans(model_3, ~ adhd_diagnosis * menarche_status_p)
+
+# View estimated means for each group
+summary(emm_3)
+
+# Pairwise comparisons of menarche effect within each ADHD status
+contrast(emm_3, method = "revpairwise", by = "adhd_diagnosis")
+```
+
+## Model 3b
+
+```{r model 3b}
+model_3b <- brm(
+  cbcl_scr_syn_external_r ~  pds_f4_p_c * adhd_diagnosis 
+    + age_years_c + ethnicity + inr_c + 
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id), 
+  data = imp_df,
+  family = poisson(),
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save Model 3b
+
+```{r save model 3b}
+saveRDS(model_3b, file = "model_3b.rds")
+```
+
+### Model 3b output
+
+```{r model 3b output}
+# Model R2
+bayes_R2(model_3b)
+
+# Model estimates
+print(model_3b, digits = 4)
+```
+
+### Model 3b posterior predictive diagnostics
+
+```{r model 3b ppcs}
+# Posterior predictive checks
+pp_check(model_3b, type = "bars", ndraws = 100)
+pp_check(model_3b, type = "hist", ndraws = 10)
+pp_check(model_3b, type = "error_hist")
+pp_check(model_3b, type = "stat", stat = "mean")
+pp_check(model_3b, type = "stat", stat = "sd")
+pp_check(model_3b, type = "scatter_avg")
+```
+
+### Model 3b MCMC sampling diagnostics
+
+```{r plot model 3b}
+plot(model_3b)
+```
+
+### Model 3b interaction analysis
+
+```{r model 3b interaction}
+# Get estimated marginal trends (simple slopes)
+emtrends_3b <- emtrends(model_3b, 
+                       pairwise ~ adhd_diagnosis, 
+                       var = "pds_f4_p_c")
+
+# View the simple slopes
+summary(emtrends_3b)
+```
+
+## Model 4
+
+```{r model 4}
+model_4 <- brm(
+  cbcl_scr_syn_internal_r ~  menarche_status_p * cbcl_scr_syn_attention_r_c
+  + age_years_c + ethnicity + inr_c +
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id),
+  data = imp_df,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234 
+)
+```
+
+### Save Model 4
+
+```{r save model 4}
+saveRDS(model_4, file = "model_4.rds")
+```
+
+### Model 4 output
+
+```{r model 4 output}
+# Model R2
+bayes_R2(model_4)
+
+# Model estimates
+print(model_4, digits = 4)
+```
+
+### Model 4 posterior predictive diagnostics
+
+```{r model 4 ppcs}
+# Posterior predictive checks
+pp_check(model_4, type = "bars", ndraws = 100)
+pp_check(model_4, type = "hist", ndraws = 10)
+pp_check(model_4, type = "error_hist")
+pp_check(model_4, type = "stat", stat = "mean")
+pp_check(model_4, type = "stat", stat = "sd")
+pp_check(model_4, type = "scatter_avg")
+```
+
+### Model 4 MCMC sampling diagnostics
+
+```{r plot model 4}
+plot(model_4)
+```
+
+### Model 4 interaction analysis
+
+```{r model 4 interaction}
+# Get estimated marginal trends (simple slopes)
+emtrends_4 <- emtrends(model_4, 
+                       pairwise ~ menarche_status_p, 
+                       var = "cbcl_scr_syn_attention_r_c")
+
+# View the simple slopes
+summary(emtrends_4)
+```
+
+## Model 4b
+
+```{r model 4b}
+model_4b <- brm(
+  cbcl_scr_syn_internal_r ~  pds_f4_p_c * cbcl_scr_syn_attention_r_c
+    + age_years_c + ethnicity + inr_c + 
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id),
+  data = imp_df,  
+  family = poisson(),  
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save Model 4b
+
+```{r save model 4b}
+saveRDS(model_4b, file = "model_4b.rds")
+```
+
+### Model 4b output
+
+```{r model 4b output}
+# Model R2
+bayes_R2(model_4b)
+
+# Model estimates
+print(model_4b, digits = 4)
+```
+
+### Model 4b diagnostics
+
+```{r model 4b ppcs}
+# Posterior predictive checks
+pp_check(model_4b, type = "bars", ndraws = 100)
+pp_check(model_4b, type = "hist", ndraws = 10)
+pp_check(model_4b, type = "error_hist")
+pp_check(model_4b, type = "stat", stat = "mean")
+pp_check(model_4b, type = "stat", stat = "sd")
+pp_check(model_4b, type = "scatter_avg")
+```
+
+### Model 4b MCMC sampling diagnostics
+
+```{r plot model 4b}
+plot(model_4b)
+```
+
+## Model 5
+
+```{r model 5}
+model_5 <- brm(
+  cbcl_scr_syn_external_r ~  menarche_status_p * cbcl_scr_syn_attention_r_c
+  + age_years_c + ethnicity + inr_c +
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id),
+  data = imp_df,  
+  family = poisson(),  
+  prior = set_prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234 
+)
+```
+
+### Save Model 5
+
+```{r save model 5}
+saveRDS(model_5, file = "model_5.rds")
+```
+
+### Model 5 output
+
+```{r model 5 output}
+# Model R2
+bayes_R2(model_5)
+
+# Model estimates
+print(model_5, digits = 4)
+```
+
+### Model 5 posterior predictive diagnostics
+
+```{r model 5 ppcs}
+# Posterior predictive checks
+pp_check(model_5, type = "bars", ndraws = 100)
+pp_check(model_5, type = "hist", ndraws = 10)
+pp_check(model_5, type = "error_hist")
+pp_check(model_5, type = "stat", stat = "mean")
+pp_check(model_5, type = "stat", stat = "sd")
+pp_check(model_5, type = "scatter_avg")
+```
+
+### Model 5 MCMC sampling diagnostics
+
+```{r plot model 5}
+plot(model_5)
+```
+
+### Model 5 interaction analysis
+
+```{r model 5 interaction}
+# Get estimated marginal trends (simple slopes)
+emtrends_5 <- emtrends(model_5, 
+                       pairwise ~ menarche_status_p, 
+                       var = "cbcl_scr_syn_attention_r_c")
+
+# View the simple slopes
+summary(emtrends_5)
+```
+
+## Model 5b
+
+```{r model 5b}
+model_5b <- brm(
+  cbcl_scr_syn_external_r ~  pds_f4_p_c * cbcl_scr_syn_attention_r_c 
+    + age_years_c + ethnicity + inr_c + 
+    (1 | src_subject_id) + (1 | family_id) + (1 | site_id) + (1 | obs_id), 
+  data = imp_df,
+  family = poisson(),
+  prior = prior("normal(0, 1)", class = "b"),
+  chains = 2, iter = 8000, warmup = 4000, thin = 1,
+  cores = 2, 
+  seed = 1234
+)
+```
+
+### Save Model 5b
+
+```{r save model 5b}
+saveRDS(model_5b, file = "model_5b.rds")
+```
+
+### Model 5b output
+
+```{r model 5b output}
+# Model R2
+bayes_R2(model_5b)
+
+# Model estimates
+print(model_5b, digits = 4)
+```
+
+### Model 5b posterior predictive diagnostics
+
+```{r model 5b ppcs}
+# Posterior predictive checks
+pp_check(model_5b, type = "bars", ndraws = 100)
+pp_check(model_5b, type = "hist", ndraws = 10)
+pp_check(model_5b, type = "error_hist")
+pp_check(model_5b, type = "stat", stat = "mean")
+pp_check(model_5b, type = "stat", stat = "sd")
+pp_check(model_5b, type = "scatter_avg")
+```
+
+### Model 5b MCMC sampling diagnostics
+
+```{r plot model 5b}
+plot(model_5b)
+```
