@@ -8,4 +8,4 @@ Follow these steps to repeat the study:
 3. Perform the [main analyses](https://github.com/emily-j-f/abcd-adhd-menarche/tree/main/3.%20Analyses%20(Bayesian%20GLMM)) (Bayesian generalised linear mixed models)
 4. Peform [sensitivity analyses](https://github.com/emily-j-f/abcd-adhd-menarche/tree/main/4.%20Sensitivity%20analyses) to test the robustness of effects
 
-Outputs for all models can be found in this [subfolder](https://github.com/emily-j-f/abcd-adhd-menarche/tree/main/3.%20Analyses%20(Bayesian%20GLMM)/Model%20outputs). A codebook for all variables can be found [here:](https://github.com/emily-j-f/abcd-adhd-menarche/tree/main/codebook)
+Outputs for all models can be found in this [subfolder](https://github.com/emily-j-f/abcd-adhd-menarche/tree/main/3.%20Analyses%20(Bayesian%20GLMM)/Model%20outputs). A codebook for all variables can be found [here](https://github.com/emily-j-f/abcd-adhd-menarche/tree/main/codebook).
