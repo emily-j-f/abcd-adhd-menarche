@@ -1,0 +1,611 @@
+---
+title: "ABCD menarche and ADHD data checks and processing (step 2)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Setup
+
+### Load libraries
+
+```{r load libraries, include = FALSE}
+# load libraries
+library(dplyr)
+library(tidyr)
+library(readr)
+library(purrr)
+library(stringr)
+library(broom)
+library(AER)
+library(effsize)
+```
+
+### Import data
+
+```{r import}
+# Read csv
+obs_df <- read_csv("obs_df.csv", show_col_types = FALSE)
+
+head(obs_df)
+str(obs_df)
+```
+
+## 1. Descriptives
+
+### 1.1 Sample size
+
+```{r sample-size}
+# Full sample N
+n_full <- obs_df %>%
+  group_by(wave) %>%
+  summarise(N_Full = n(), .groups = "drop")
+
+# ADHD lifetime Y / N
+n_life <- obs_df %>%
+  filter(!is.na(adhd_status_life)) %>%
+  group_by(wave, adhd_status_life) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = adhd_status_life,
+    values_from = N,
+    names_prefix = "N_ADHD_life_"
+  )
+
+# ADHD present Y only
+n_pres <- obs_df %>%
+  filter(adhd_status_pres == "Y") %>%
+  group_by(wave) %>%
+  summarise(N_ADHD_pres_Y = n(), .groups = "drop")
+
+# Combine all
+group_ns <- n_full %>%
+  full_join(n_life, by = "wave") %>%
+  full_join(n_pres, by = "wave") %>%
+  arrange(wave)
+
+group_ns
+```
+
+### 1.2 Create variable groups
+
+```{r var-groups}
+continuous_vars <- c(
+    "age",
+    "adhd_traits",
+    "internalising",
+    "externalising",
+    "inr",
+    "breast_development_p",
+    "bmi"
+)
+
+categorical_vars <- c(
+  "menarche_status_p",
+  "ethnrace",
+  "depression",
+  "gad",
+  "cd",
+  "odd"
+)
+```
+
+### 1.3 Continuous variable descriptives
+
+```{r continuous-descriptives}
+# Summary function (continuous)
+summarise_cont <- function(df, var) {
+  x <- df[[var]]
+  
+  n_total <- length(x)
+  n_missing <- sum(is.na(x))
+  x_nonmiss <- x[!is.na(x)]
+  
+  missing_pct <- round(n_missing / n_total * 100, 1)
+  
+  if (length(x_nonmiss) == 0) {
+    tibble(
+      Range   = NA_character_,
+      Mean_SD = NA_character_,
+      Missing = paste0(missing_pct, "%")
+    )
+  } else {
+    tibble(
+      Range   = paste0(round(min(x_nonmiss), 1), "–", round(max(x_nonmiss), 1)),
+      Mean_SD = paste0(round(mean(x_nonmiss), 1), " (", round(sd(x_nonmiss), 1), ")"),
+      Missing = paste0(missing_pct, "%")
+    )
+  }
+}
+
+# Create table
+continuous_table <- lapply(continuous_vars, function(var) {
+  
+  # Full sample
+  full_df <- obs_df %>%
+    mutate(Group = "Full") %>%
+    group_by(wave, Group) %>%
+    group_modify(~ summarise_cont(.x, var)) %>%
+    ungroup()
+  
+  # ADHD groups
+  group_df <- obs_df %>%
+    filter(!is.na(adhd_status_life)) %>%
+    mutate(Group = case_when(
+      adhd_status_life == "Y" ~ "ADHD",
+      adhd_status_life == "N" ~ "Non_ADHD"
+    )) %>%
+    group_by(wave, Group) %>%
+    group_modify(~ summarise_cont(.x, var)) %>%
+    ungroup()
+  
+  # bind long format
+  long_table <- bind_rows(full_df, group_df) %>%
+    mutate(Variable = var)
+  
+  long_table
+}) %>%
+  bind_rows()
+
+# Convert to wide format
+continuous_table_wide <- continuous_table %>%
+  pivot_wider(
+    names_from = Group,
+    values_from = c(Range, Mean_SD, Missing),
+    names_glue = "{Group}_{.value}"
+  )
+
+# Reorder columns
+continuous_table_wide <- continuous_table_wide %>%
+  select(
+    Variable, wave,
+    starts_with("Full"),
+    starts_with("Non_ADHD"),
+    starts_with("ADHD")
+  )
+
+# Export
+readr::write_excel_csv(continuous_table_wide, "continuous_table.csv")
+
+continuous_table_wide
+```
+
+### 1.4 Continuous group differences
+
+```{r test-continuous-differences}
+group_filters <- list(
+  
+  # Non-ADHD females
+  `Non-ADHD_F` = function(df) {
+    df %>%
+      dplyr::filter(
+        adhd_status_life == "N"
+      )
+  },
+  
+  # ADHD females
+  ADHD_F = function(df) {
+    df %>%
+      dplyr::filter(
+        adhd_status_life == "Y"
+      )
+  }
+  
+)
+
+mann_whitney_wave <- function(df, var, group1_filter, group2_filter,
+                              group1_name, group2_name) {
+  
+  df %>%
+    group_by(wave) %>%
+    group_modify(~ {
+      
+      x <- group1_filter(.x)[[var]]
+      y <- group2_filter(.x)[[var]]
+      
+      x <- x[!is.na(x)]
+      y <- y[!is.na(y)]
+      
+      if (length(x) < 2 || length(y) < 2) {
+        return(tibble(
+          U_stat = NA,
+          mean_diff = NA,
+          effect_r = NA,
+          cliffs_delta = NA,
+          p_value = NA
+        ))
+      }
+      
+      # Mann-Whitney / Wilcoxon rank-sum test
+      wilc_res <- wilcox.test(x, y, exact = FALSE)
+      
+      # Rank-biserial correlation
+      n1 <- length(x)
+      n2 <- length(y)
+      W <- wilc_res$statistic
+      mu_W <- n1 * n2 / 2
+      sigma_W <- sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
+      z <- (W - mu_W) / sigma_W
+      r <- z / sqrt(n1 + n2)
+      
+      # Cliff's delta (note: group order matters for sign)
+      cd <- cliff.delta(y, x)  # ADHD vs Non-ADHD
+      
+      tibble(
+        U_stat = unname(W),
+        mean_diff = round(mean(x) - mean(y), 2),
+        effect_r = round(r, 2),
+        cliffs_delta = round(cd$estimate, 2),
+        p_value = wilc_res$p.value
+      )
+      
+    }) %>%
+    ungroup() %>%
+    mutate(
+      Variable = var,
+      Comparison = "Females: ADHD vs Non-ADHD"
+    ) %>%
+    dplyr::select(Variable, wave, Comparison, p_value, U_stat, mean_diff, cliffs_delta)
+}
+
+# Run across all continuous variables
+mw_tests_wave <- do.call(rbind, lapply(continuous_vars, function(var) {
+  mann_whitney_wave(
+    df = obs_df,
+    var = var,
+    group1_filter = group_filters$`Non-ADHD_F`,
+    group2_filter = group_filters$ADHD_F,
+    group1_name = "Non-ADHD_F",
+    group2_name = "ADHD_F"
+  )
+}))
+
+# Format p-values
+format_p <- function(p) {
+  ifelse(is.na(p), NA,
+         ifelse(p < .001, "< .001",
+                sprintf("%.3f", p)))
+}
+
+mw_tests_wave_clean <- mw_tests_wave %>%
+  mutate(
+    p_value = format_p(p_value)
+  )
+
+View(mw_tests_wave_clean)
+```
+
+### 1.5 Continuous ADHD life vs present
+
+```{r adhd-life-pres}
+# Summary function
+summarise_cont_adhd <- function(df, var) {
+  x <- df[[var]]
+  
+  n_total <- length(x)
+  n_missing <- sum(is.na(x))
+  x_nonmiss <- x[!is.na(x)]
+  
+  missing_pct <- round(n_missing / n_total * 100, 1)
+  
+  if (length(x_nonmiss) == 0) {
+    tibble(
+      Range   = NA_character_,
+      Mean_SD = NA_character_,
+      Missing = paste0(missing_pct, "%")
+    )
+  } else {
+    tibble(
+      Range   = paste0(round(min(x_nonmiss), 1), "-", round(max(x_nonmiss), 1)),
+      Mean_SD = paste0(round(mean(x_nonmiss), 1), " (", round(sd(x_nonmiss), 1), ")"),
+      Missing = paste0(missing_pct, "%")
+    )
+  }
+}
+
+# Table
+continuous_table_adhd <- lapply(continuous_vars, function(var) {
+  
+  # ADHD lifetime = Y
+  life_df <- obs_df %>%
+    filter(adhd_status_life == "Y") %>%
+    mutate(Group = "ADHD_Life") %>%
+    group_by(wave, Group) %>%
+    group_modify(~ summarise_cont(.x, var)) %>%
+    ungroup()
+  
+  # ADHD present = Y
+  pres_df <- obs_df %>%
+    filter(adhd_status_pres == "Y") %>%
+    mutate(Group = "ADHD_Present") %>%
+    group_by(wave, Group) %>%
+    group_modify(~ summarise_cont(.x, var)) %>%
+    ungroup()
+  
+  bind_rows(life_df, pres_df) %>%
+    mutate(Variable = var)
+  
+}) %>%
+  bind_rows()
+
+# Wide format (side-by-side)
+continuous_table_adhd_wide <- continuous_table_adhd %>%
+  pivot_wider(
+    names_from = Group,
+    values_from = c(Range, Mean_SD, Missing),
+    names_glue = "{Group}_{.value}"
+  ) %>%
+  select(
+    Variable, wave,
+    starts_with("ADHD_Life"),
+    starts_with("ADHD_Present")
+  )
+
+# Export
+readr::write_excel_csv(continuous_table_adhd_wide, "continuous_table_adhd_life_vs_present.csv")
+
+continuous_table_wide
+```
+
+### 1.6 Categorical variables descriptives
+
+```{r cat-vars-descriptives}
+var_levels <- list( 
+  ethnrace = c( "white_nh", "hispanic", "black_nh", "asian", "other" ), 
+  menarche_status_p = c("N", "Y"), 
+  depression = c("0", "1"), 
+  gad = c("0", "1"), 
+  cd = c("0", "1"), 
+  odd = c("0", "1") 
+  )
+
+# Define categorical table by wave
+categorical_table_wave <- lapply(categorical_vars, function(var) {
+  
+  if (!(var %in% names(obs_df))) return(NULL)
+  
+  # Make sure the column is a factor with the full set of levels
+  obs_df[[var]] <- factor(obs_df[[var]], levels = var_levels[[var]])
+  
+  obs_df %>%
+    group_by(wave) %>%
+    group_modify(~ {
+      df <- .x
+      
+      # Full sample counts
+      full_df <- df %>%
+        count(Level = .data[[var]]) %>%
+        tidyr::complete(Level = var_levels[[var]], fill = list(n = 0)) %>%
+        mutate(
+          Perc_full = round(100 * n / sum(n), 1),
+          Full = paste0(n, " (", Perc_full, "%)")
+        ) %>%
+        select(Level, Full)
+      
+      # ADHD split
+      adhd_df <- df %>%
+        filter(!is.na(adhd_status_life)) %>%
+        count(adhd_status_life, Level = .data[[var]]) %>%
+        group_by(adhd_status_life) %>%
+        tidyr::complete(Level = var_levels[[var]], fill = list(n = 0)) %>%
+        mutate(
+          Perc = round(100 * n / sum(n), 1),
+          Value = paste0(n, " (", Perc, "%)")
+        ) %>%
+        ungroup() %>%
+        select(Level, adhd_status_life, Value) %>%
+        tidyr::pivot_wider(names_from = adhd_status_life, values_from = Value, values_fill = "0 (0%)")
+      
+      # Join full and ADHD counts
+      full_df %>%
+        left_join(adhd_df, by = "Level") %>%
+        mutate(
+          Variable = var,
+          Level = factor(Level, levels = var_levels[[var]])
+        ) %>%
+        arrange(Level) %>%
+        select(Variable, Level, Full, N = `N`, Y = `Y`)
+      
+    }) %>%
+    ungroup()
+  
+}) %>% bind_rows()
+
+# Save to CSV
+write_csv(categorical_table_wave, "categorical_table_by_wave.csv")
+```
+
+### 1.7 Categorical ADHD lifetime and ADHD present
+
+```{r cat-adhd-life-pres}
+var_levels <- list(
+  ethnrace = c("white_nh", "hispanic", "black_nh", "asian", "other"),
+  menarche_status_p = c("N", "Y"),
+  depression = c("0", "1"),
+  gad = c("0", "1"),
+  cd = c("0", "1"),
+  odd = c("0", "1")
+)
+
+# Categorical table by wave
+categorical_adhd_table_wave <- lapply(categorical_vars, function(var) {
+  
+  if (!(var %in% names(obs_df))) return(NULL)
+  
+  obs_df[[var]] <- factor(obs_df[[var]], levels = var_levels[[var]])
+  
+  obs_df %>%
+    group_by(wave) %>%
+    group_modify(~ {
+      
+      df <- .x
+      
+      # Full sample
+      full_df <- df %>%
+        count(Level = .data[[var]]) %>%
+        complete(Level = var_levels[[var]], fill = list(n = 0)) %>%
+        mutate(
+          Perc_full = round(100 * n / sum(n), 1),
+          Full = paste0(n, " (", Perc_full, "%)")
+        ) %>%
+        select(Level, Full)
+      
+      # ADHD lifetime Y
+      adhd_life_df <- df %>%
+        filter(adhd_status_life == "Y") %>%
+        count(Level = .data[[var]]) %>%
+        complete(Level = var_levels[[var]], fill = list(n = 0)) %>%
+        mutate(
+          Perc = round(100 * n / sum(n), 1),
+          ADHD_Life_Y = paste0(n, " (", Perc, "%)")
+        ) %>%
+        select(Level, ADHD_Life_Y)
+      
+      # ADHD present Y
+      adhd_pres_df <- df %>%
+        filter(adhd_status_pres == "Y") %>%
+        count(Level = .data[[var]]) %>%
+        complete(Level = var_levels[[var]], fill = list(n = 0)) %>%
+        mutate(
+          Perc = round(100 * n / sum(n), 1),
+          ADHD_Pres_Y = paste0(n, " (", Perc, "%)")
+        ) %>%
+        select(Level, ADHD_Pres_Y)
+      
+      # Combine
+      full_df %>%
+        left_join(adhd_life_df, by = "Level") %>%
+        left_join(adhd_pres_df, by = "Level") %>%
+        mutate(
+          Variable = var,
+          Level = factor(Level, levels = var_levels[[var]])
+        ) %>%
+        arrange(Level) %>%
+        select(Variable, Level, Full, ADHD_Life_Y, ADHD_Pres_Y)
+      
+    }) %>%
+    ungroup()
+  
+}) %>% bind_rows()
+
+readr::write_excel_csv(categorical_adhd_table_wave, "categorical_table_adhd_life_vs_present.csv")
+```
+
+### 1.8 Test group diffs for categorical
+
+```{r cat-group-diffs}
+run_chisq <- function(data, var, group_var = "adhd_status_life") {
+  
+  df <- data %>%
+    select(all_of(c(var, group_var))) %>%
+    filter(!is.na(.data[[var]]), !is.na(.data[[group_var]]))
+  
+  tab <- table(df[[var]], df[[group_var]])
+  
+  test <- chisq.test(tab)
+  
+  tidy(test) %>%
+    mutate(
+      variable = var,
+      n = sum(tab)
+    )
+}
+
+wave0_vars <- c("ethnrace", "depression", "gad", "cd", "odd")
+
+wave0_results <- map_dfr(wave0_vars, function(v) {
+  df_wave0 <- obs_df %>% filter(wave == "wave_0")
+  run_chisq(df_wave0, v)
+})
+ 
+wave0_results <- wave0_results %>%
+  select(variable, statistic, p.value, n)
+
+wave0_results
+
+menarche_results <- obs_df %>%
+  filter(!is.na(wave)) %>%
+  group_split(wave) %>%
+  map_dfr(function(df_wave) {
+    wave_name <- unique(df_wave$wave)
+    
+    run_chisq(df_wave, "menarche_status_p") %>%
+      mutate(wave = wave_name)
+  })
+
+menarche_results %>%
+  select(variable, wave, statistic, p.value, parameter, n) %>%
+  mutate(p.value = formatC(p.value, format = "f", digits = 3))
+```
+
+
+## 2. Overdispersion tests
+
+```{r overdispersion-tests}
+## Poisson models
+poisson_model_traits <- glm(adhd_traits ~ 1, family = poisson, data = obs_df)
+poisson_model_int <- glm(internalising ~ 1, family = poisson, data = obs_df)
+poisson_model_ext <- glm(externalising ~ 1, family = poisson, data = obs_df)
+
+## Dispersion test
+dispersion_test_traits <- dispersiontest(poisson_model_traits)
+dispersion_test_int <- dispersiontest(poisson_model_int)
+dispersion_test_ext <- dispersiontest(poisson_model_ext)
+
+print(dispersion_test_traits)
+print(dispersion_test_int)
+print(dispersion_test_ext)
+```
+
+## 3. Missingness for menarche and breast development exclusion flowchart
+
+```{r puberty-missing}
+# Missing across all waves
+count_all_missing_menarche <- obs_df %>%
+  group_by(participant_id) %>%
+  summarise(all_missing = all(is.na(menarche_status_p))) %>%
+  summarise(n = sum(all_missing)) 
+
+count_all_missing_breast_development <- obs_df %>%
+  group_by(participant_id) %>%
+  summarise(all_missing = all(is.na(breast_development_p))) %>%
+  summarise(n = sum(all_missing)) 
+
+# Missing at wave 2 
+missing_menarche_wave_2 <- obs_df %>%
+  filter(wave == "wave_2") %>%
+  count(is.na(menarche_status_p))
+
+missing_breast_development_wave_2 <- obs_df %>%
+  filter(wave == "wave_2") %>%
+  count(is.na(breast_development_p))
+
+count_all_missing_menarche
+count_all_missing_breast_development 
+missing_menarche_wave_2 
+missing_breast_development_wave_2 
+```
+
+### 4. Menarche change from wave 2 --> 3
+
+```{r menarche-2-3}
+# Keep only participants with Wave 2 and Wave 3 menarche data
+w2_w3 <- obs_df |>
+  filter(wave %in% c("wave_2", "wave_3")) |>
+  select(participant_id, wave, menarche_status_p) |>
+  tidyr::pivot_wider(
+    names_from = wave,
+    values_from = menarche_status_p
+  ) |>
+  filter(!is.na(wave_2), !is.na(wave_3))
+
+# Keep participants who were pre-menarche at Wave 2
+eligible <- w2_w3 |>
+  filter(wave_2 == "N")
+
+# Calculate percentage who converted to post-menarche by Wave 3
+conversion_pct <- mean(eligible$wave_3 == "Y") * 100
+
+conversion_pct
+```
+
