@@ -1,0 +1,412 @@
+---
+title: "ABCD ADHD menarche raw dataset preparation (step 1)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+### Load libraries
+
+```{r load-libraries}
+library(tidyverse)
+library(dplyr)
+```
+
+## 1. Make raw dataframe with all variables relevent to analyses
+
+### 1.1. Read all relevant ABCD files
+
+```{r read-abcd-files}
+# Site ID
+ab_g_dyn <- read_csv("ab_g_dyn.csv", show_col_types = FALSE)
+
+# Sex, Race/Ethnicity, Family ID
+ab_g_stc <- read_csv("ab_g_stc.csv", show_col_types = FALSE)
+
+# Demographic
+ab_p_demo <- read_csv("ab_p_demo.csv", show_col_types = FALSE)
+
+# CBCL
+mh_p_cbcl <- read_csv("mh_p_cbcl.csv", show_col_types = FALSE)
+
+# Puberty
+ph_p_pds <- read_csv("ph_p_pds.csv", show_col_types = FALSE)
+ph_y_pds <- read_csv("ph_y_pds.csv", show_col_types = FALSE)
+
+# ADHD
+mh_p_ksads__adhd <- read_csv("mh_p_ksads__adhd.csv", show_col_types = FALSE)
+
+# Co-occurring mental health conditions
+mh_p_ksads__dep <- read_csv("mh_p_ksads__dep.csv", show_col_types = FALSE)
+mh_p_ksads__gad <- read_csv("mh_p_ksads__gad.csv", show_col_types = FALSE)
+mh_p_ksads__cond <- read_csv("mh_p_ksads__cond.csv", show_col_types = FALSE)
+mh_p_ksads__odd <- read_csv("mh_p_ksads__odd.csv", show_col_types = FALSE)
+
+# Exclusion conditions
+mh_p_ksads__psych <- read_csv("mh_p_ksads__psych.csv", show_col_types = FALSE)
+mh_p_ksads__bpd <- read_csv("mh_p_ksads__bpd.csv", show_col_types = FALSE)
+ab_p_screen <- read_csv("ab_p_screen.csv", show_col_types = FALSE)
+ph_p_otbi <- read_csv("ph_p_otbi.csv", show_col_types = FALSE)
+mh_p_ksads__tic <- read_csv("mh_p_ksads__tic.csv", show_col_types = FALSE)
+nc_y_nihtb <- read_csv("nc_y_nihtb.csv", show_col_types = FALSE)
+
+# Anthropometric
+ph_y_anthr <- read_csv("ph_y_anthr.csv", show_col_types = FALSE)
+
+# Medications
+ph_p_meds <- read_csv("ph_p_meds.csv", show_col_types = FALSE)
+
+# Area Deprivation Index
+le_l_adi <- read_csv("le_l_adi.csv", show_col_types = FALSE)
+```
+
+### 1.2 Check for parsing problems
+
+```{r check-parsing-problems}
+# Check for parsing problems
+datasets <- list(
+  ab_g_dyn = ab_g_dyn,
+  ab_g_stc = ab_g_stc,
+  ab_p_demo = ab_p_demo,
+  mh_p_cbcl = mh_p_cbcl,
+  nc_y_nihtb = nc_y_nihtb,
+  ph_p_pds = ph_p_pds,
+  mh_p_ksads__adhd = mh_p_ksads__adhd,
+  mh_p_ksads__psych = mh_p_ksads__psych,
+  mh_p_ksads__bpd = mh_p_ksads__bpd,
+  mh_p_ksads__tic = mh_p_ksads__tic,
+  mh_p_ksads__tic = mh_p_ksads__cond,
+  mh_p_ksads__tic = mh_p_ksads__odd,
+  mh_p_ksads__tic = mh_p_ksads__dep,
+  mh_p_ksads__tic = mh_p_ksads__gad,
+  ab_p_screen = ab_p_screen,
+  ph_p_otbi = ph_p_otbi,
+  ph_y_anthr = ph_y_anthr,
+  ph_p_meds = ph_p_meds,
+  le_l_adi = le_l_adi
+)
+
+# Run problems() on each and print only if issues exist
+for (name in names(datasets)) {
+  dat <- datasets[[name]]
+  prob <- problems(dat)
+  
+  if (nrow(prob) > 0) {
+    cat("\nParsing issues in", name, ":\n")
+    
+    # Add column names to the problems dataframe
+    prob$col_name <- names(dat)[prob$col]
+    
+    # Print full problem details including column names
+    print(as.data.frame(prob))
+    
+    # Print unique columns affected
+    cat("\nColumns with parsing problems in", name, ":\n")
+    print(unique(prob$col_name))
+    
+  } else {
+    cat("\nNo parsing issues in", name, "\n")
+  }
+}
+```
+
+### 1.3 Meds dataframe parsing issues 
+
+Meds df has issues that affect variables needed in analysis. All other parsing issues do not affect columsn that we require for analysis.
+
+```{r meds-parsing-issues}
+# Get all parsing problems from the original tibble
+problems(ph_p_meds)
+```
+
+### 1.4 Convert meds columns to characters. 
+
+Other variables with parsing issues are not needed for the analysis.
+
+```{r meds-columns-to-character}
+ph_p_meds <- ph_p_meds %>%
+  mutate(across(matches("^ph_p_meds__rx__(id|label)_"), as.character))
+```
+
+### 1.5 Check parsing problems fixed
+
+```{r meds-parsing-issues-check}
+# Get all meds parsing problems from the original tibble
+meds_problems <- problems(ph_p_meds)
+
+meds_problems
+
+if (nrow(meds_problems) == 0) {
+  message("No parsing problems.")
+} else {
+  message("Parsing problems remain.")
+}
+```
+
+### 1.6 Select columns from ABCD files
+
+```{r select-abcd-cols}
+# Site ID
+dynamic_select <- ab_g_dyn %>%
+  dplyr::select(
+    participant_id, session_id,
+    ab_g_dyn__visit_age,
+    ab_g_dyn__design_site
+  )
+
+# Sex, Race/Ethnicity, Family ID
+static_select <- ab_g_stc %>%
+  dplyr::select(
+    participant_id,
+    ab_g_stc__cohort_sex,
+    ab_g_stc__design_id__fam,
+    ab_g_stc__cohort_ethnrace__leg
+  )
+
+# Demographic
+demo_select <- ab_p_demo %>%
+  dplyr::select(
+    participant_id, session_id,
+    ab_p_demo_age,
+    ab_p_demo__roster_001,
+    ab_p_demo__income__hhold_001,
+    ab_p_demo__income__hhold_001__v01
+  )
+
+# CBCL
+cbcl_select = mh_p_cbcl %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_cbcl_age,
+    mh_p_cbcl__synd__attn_sum,
+    mh_p_cbcl__synd__ext_sum,
+    mh_p_cbcl__synd__int_sum
+  )
+
+# Puberty
+ph_p_pds_select <- ph_p_pds %>%
+  dplyr::select(
+    participant_id, session_id,
+    ph_p_pds_age,
+    ph_p_pds_001,
+    ph_p_pds_002,
+    ph_p_pds_003,
+    ph_p_pds__f_001,
+    ph_p_pds__f_002,
+    ph_p_pds__f_002__01
+  )
+
+ph_y_pds_select <- ph_y_pds %>%
+  dplyr::select(
+    participant_id, session_id,
+    ph_y_pds_age,
+    ph_y_pds_001,
+    ph_y_pds_002,
+    ph_y_pds_003,
+    ph_y_pds__f_001,
+    ph_y_pds__f_002,
+    ph_y_pds__f_002__01
+  )
+
+# ADHD
+adhd_select <- mh_p_ksads__adhd %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__adhd__past_dx,
+    mh_p_ksads__adhd__pres_dx,
+    mh_p_ksads__adhd__fullrem_dx,
+    mh_p_ksads__adhd__partrem_dx,
+    mh_p_ksads__adhd__unspec_dx,
+    mh_p_ksads__adhd__oth_dx
+  )
+
+# Co-occurring mental health
+dep_select <- mh_p_ksads__dep %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__dep__mdd__past_dx,
+    mh_p_ksads__dep__mdd__pres_dx,
+    mh_p_ksads__dep__mdd__partrem_dx,
+    mh_p_ksads__dep__pdd__past_dx,
+    mh_p_ksads__dep__pdd__pres_dx,
+    mh_p_ksads__dep__pdd__partrem_dx
+  )
+
+gad_select <- mh_p_ksads__gad %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__gad__past_dx,
+    mh_p_ksads__gad__pres_dx,
+    mh_p_ksads__gad__oth__mindur__past_dx,
+    mh_p_ksads__gad__oth__mindur__pres_dx
+  )
+
+cond_select <- mh_p_ksads__cond %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__cond__onset__adoles__past_dx,
+    mh_p_ksads__cond__onset__adoles__pres_dx,
+    mh_p_ksads__cond__onset__chld__past_dx,
+    mh_p_ksads__cond__onset__chld__pres_dx
+  )
+
+odd_select <- mh_p_ksads__odd %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__odd__past_dx,
+    mh_p_ksads__odd__pres_dx
+  )
+
+# Exclusion conditions
+schiz_select <- mh_p_ksads__psych %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__psych__schiz__pres_dx,
+    mh_p_ksads__psych__schizaffct__pres_dx,
+    mh_p_ksads__psych__schizform__pres_dx,
+    mh_p_ksads__psych__schiz__oth__past_dx,
+    mh_p_ksads__psych__schiz__oth__pres_dx
+  )
+
+bpd_select <- mh_p_ksads__bpd %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__bpd__bpd1__rcnt__manic__pres_dx,
+    mh_p_ksads__bpd__bpd1__rcnt__manicmix__pres_dx,
+    mh_p_ksads__bpd__bpd2__curdep__pres_dx,
+    mh_p_ksads__bpd__bpd2__curdep__partrem_dx,
+    mh_p_ksads__bpd__bpd2__curhypo__pres_dx,
+    mh_p_ksads__bpd__bpd2__rcnt__hypo__pres_dx
+  )
+
+screen_select <- ab_p_screen %>%
+  dplyr::select(
+    ab_p_screen_age,
+    participant_id, session_id,
+    ab_p_screen__med_009
+  )
+
+otbi_select <- ph_p_otbi %>%
+  dplyr::select(
+    participant_id, session_id,
+    ph_p_otbi_tbiworst
+  )
+
+tic_select <- mh_p_ksads__tic %>%
+  dplyr::select(
+    participant_id, session_id,
+    mh_p_ksads__tic__ts__pres_dx,
+    mh_p_ksads__tic__ts__nosymp__rem_dx
+  )
+
+nc_y_nihtb_select <- nc_y_nihtb %>%
+  dplyr::select(
+    participant_id, session_id,
+    nc_y_nihtb__comp__tot__agecor_score
+  )
+
+# Anthropometric
+anthro_select <- ph_y_anthr %>%
+  dplyr::select(
+    participant_id, session_id,
+    ph_y_anthr_age,
+    ph_y_anthr__height_mean,
+    ph_y_anthr__weight_mean
+  )
+
+# Medications
+meds_select <- ph_p_meds %>%
+  dplyr::select(
+    participant_id, session_id,
+    ph_p_meds_age,
+    matches("^ph_p_meds__rx__(label)_")
+  )
+
+# Area Deprivation Index
+adi_select <- le_l_adi %>%
+  dplyr::select(
+    participant_id,
+    le_l_adi__addr1_wsum
+  )
+
+# Join columns based on participant ID and wave
+adhd_menarche_raw <- dynamic_select %>%
+  full_join(static_select, by = "participant_id") %>%   # no session_id
+  full_join(demo_select, by = c("participant_id", "session_id")) %>%
+  full_join(cbcl_select, by = c("participant_id", "session_id")) %>%
+  full_join(nc_y_nihtb_select, by = c("participant_id", "session_id")) %>%
+  full_join(ph_p_pds_select, by = c("participant_id", "session_id")) %>%
+  full_join(ph_y_pds_select, by = c("participant_id", "session_id")) %>%
+  full_join(adhd_select, by = c("participant_id", "session_id")) %>%
+  full_join(schiz_select, by = c("participant_id", "session_id")) %>%
+  full_join(bpd_select, by = c("participant_id", "session_id")) %>%
+  full_join(screen_select, by = c("participant_id", "session_id")) %>%
+  full_join(otbi_select, by = c("participant_id", "session_id")) %>%
+  full_join(tic_select, by = c("participant_id", "session_id")) %>%
+  full_join(gad_select, by = c("participant_id", "session_id")) %>%
+  full_join(dep_select, by = c("participant_id", "session_id")) %>%
+  full_join(cond_select, by = c("participant_id", "session_id")) %>%
+  full_join(odd_select, by = c("participant_id", "session_id")) %>%
+  full_join(anthro_select, by = c("participant_id", "session_id")) %>%
+  full_join(meds_select, by = c("participant_id", "session_id")) %>%
+  full_join(adi_select, by = "participant_id")
+```
+
+## 2. Refine raw dataframe
+
+### 2.1 Remove waves 5 and 6
+
+```{r remove-waves-5-6}
+adhd_menarche_raw <- adhd_menarche_raw %>%
+  filter(!session_id %in% c("ses-05A", "ses-06A"))
+```
+
+### 2.2 Check for duplicates
+
+```{r check-duplicates}
+sum(duplicated(adhd_menarche_raw))
+
+# Identify participants with any duplicated session_id
+duplicates <- adhd_menarche_raw %>%
+  group_by(participant_id) %>%
+  filter(duplicated(session_id) | duplicated(session_id, fromLast = TRUE))
+
+# View the duplicated rows
+print(duplicates)
+```
+
+### 2.3 Check raw dataframe
+
+```{r check-raw-df}
+head(adhd_menarche_raw)
+str(adhd_menarche_raw)
+```
+
+## 3. Sample size
+
+```{r sample-size}
+summary(unique(adhd_menarche_raw$participant_id))
+
+female_count <- adhd_menarche_raw %>%
+  filter(ab_g_stc__cohort_sex == 2) %>%
+  summarise(n = n_distinct(participant_id))
+
+male_count <- adhd_menarche_raw %>%
+  filter(ab_g_stc__cohort_sex == 1) %>%
+  summarise(n = n_distinct(participant_id))
+
+female_count
+male_count
+```
+
+## 4. Save raw dataframe
+
+```{r export-raw-df}
+write_csv(adhd_menarche_raw, "adhd_menarche_raw.csv")
+```

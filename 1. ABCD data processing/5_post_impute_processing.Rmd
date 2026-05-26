@@ -1,0 +1,402 @@
+---
+title: "ABCD ADHD menarche post imputation processing (step 5)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+editor: source
+---
+
+##Setup
+
+### Load libraries
+
+```{r load-libraries}
+library(tidyverse)
+library(ggplot2)
+library(mice)
+library(brms)
+library(purrr)
+library(corrplot)
+```
+
+### Import imputed df
+
+```{r import}
+imp_df <- read.csv("imputed_dataset.csv")
+```
+
+## Initial checks
+
+```{r structure-imp}
+str(imp_df)
+head(imp_df)
+```
+
+## 1. Post-imputation data processing
+
+### 1.1 Apply exclusions
+
+```{r exclusions}
+n_original <- length(unique(imp_df$participant_id))
+
+# Participant-level exclusions
+excluded_ids <- imp_df %>%
+  group_by(participant_id) %>%
+  summarise(
+    tic = any(tic_flag == 1, na.rm = TRUE),
+    tbi = any(tbi_flag == 1, na.rm = TRUE),
+    schizophrenia = any(schizophrenia_flag == 1, na.rm = TRUE),
+    bipolar = any(bipolar_flag == 1, na.rm = TRUE),
+    nihtb = any(nihtb_low_flag == 1, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Initialise remaining IDs (all participants at start)
+remaining_ids <- excluded_ids$participant_id
+
+# Initialise dataframe to track sequential exclusions
+exclusion_counts <- data.frame(
+  flag = character(),
+  n_excluded = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Function to apply exclusion and count
+exclude_flag <- function(flag_name, current_ids) {
+  to_exclude <- excluded_ids %>%
+    filter(participant_id %in% current_ids) %>%
+    filter(.data[[flag_name]] == TRUE) %>%
+    pull(participant_id)
+  
+  n_excl <- length(to_exclude)
+  
+  # Update exclusion counts
+  exclusion_counts <<- rbind(exclusion_counts,
+                             data.frame(flag = flag_name,
+                                        n_excluded = n_excl))
+  
+  # Return IDs that remain after exclusion
+  setdiff(current_ids, to_exclude)
+}
+
+# Apply exclusions sequentially
+remaining_ids <- exclude_flag("tic", remaining_ids)
+remaining_ids <- exclude_flag("tbi", remaining_ids)
+remaining_ids <- exclude_flag("schizophrenia", remaining_ids)
+remaining_ids <- exclude_flag("bipolar", remaining_ids)
+remaining_ids <- exclude_flag("nihtb", remaining_ids)
+
+# Final observed dataframe
+imp_df <- imp_df %>%
+  filter(participant_id %in% remaining_ids)
+
+n_obs <- length(unique(imp_df$participant_id))
+
+# Total excluded
+total_excluded <- n_original - n_obs
+
+# Print results
+print(exclusion_counts)
+cat("Total participants excluded:", total_excluded, "\n")
+cat("Total participants remaining:", length(unique(imp_df$participant_id)), "\n")
+```
+
+### 1.2 Check sample size
+
+```{r sample-size}
+summary(unique(imp_df$participant_id))
+```
+
+### 1.3 Check number of ADHD left
+
+```{r check-adhd}
+adhd_life_remaining <- imp_df %>%
+  group_by(participant_id) %>%
+  filter(adhd_status_life == 1)
+
+summary(unique(adhd_life_remaining$participant_id))
+
+adhd_pres_remaining <- imp_df %>%
+  group_by(participant_id) %>%
+  filter(adhd_status_pres == 1)
+
+summary(unique(adhd_pres_remaining$participant_id))
+```
+
+### 1.4 Convert character variables to factors
+
+```{r recoding-factors}
+imp_df <- imp_df %>%
+  mutate(
+    menarche_status_p = factor(
+      menarche_status_p, 
+      levels = c("N", "Y"), 
+      labels = c("N", "Y")
+    ),
+    adhd_status_life = factor(
+      adhd_status_life, 
+      levels = c(0, 1), 
+      labels = c("N", "Y")
+    ),
+    adhd_status_pres = factor(
+      adhd_status_pres, 
+      levels = c(0, 1), 
+      labels = c("N", "Y")
+    ),
+    ethnrace = factor(
+      ab_g_stc__cohort_ethnrace__leg,
+      levels = c(2, 1, 3, 4, 13),
+      labels = c(
+        "white_nh",
+        "hispanic",
+        "black_nh",
+        "other",
+        "other"
+      )
+    )
+  )
+
+imp_df$breast_development_p <- as.numeric(imp_df$breast_development_p)
+imp_df$ph_y_anthr__weight_mean <- as.numeric(imp_df$ph_y_anthr__weight_mean)
+imp_df$ph_y_anthr__height_mean <- as.numeric(imp_df$ph_y_anthr__height_mean)
+```
+
+### 1.5 Calculate BMI
+
+```{r bmi}
+imp_df <- imp_df %>%
+    mutate(bmi = (ph_y_anthr__weight_mean / (ph_y_anthr__height_mean^2)) * 703)
+
+head(imp_df$bmi)
+```
+
+### 1.6 Create INR variable
+
+```{r inr}
+US_poverty_thresholds <- read.csv("US_poverty_thresholds.csv")
+
+US_poverty_thresholds <- US_poverty_thresholds %>%
+  mutate(wave_people = paste0(wave, "_", people))
+
+income_mapping <- c(
+  2500,   # <$5,000
+  8500,   # $5,000–$11,999
+  14000,  # $12,000–$15,999
+  20500,  # $16,000–$24,999
+  30000,  # $25,000–$34,999
+  42500,  # $35,000–$49,999
+  62500,  # $50,000–$74,999
+  87500,  # $75,000–$99,999
+  150000, # $100,000–$199,999
+  300000  # $200,000+
+)
+
+imp_df <- imp_df %>%
+    mutate(
+      # Map ordinal income to midpoint
+      mean_income = income_mapping[household_income],
+
+      # Create merge key
+      wave_people = paste0(wave, "_", ab_p_demo__roster_001)
+    ) %>%
+
+    # Join poverty thresholds
+    left_join(US_poverty_thresholds, by = c("wave_people", "wave")) %>%
+
+    # Calculate Income-to-Needs Ratio
+    mutate(
+      inr = mean_income / poverty_threshold
+    )
+
+names(imp_df)
+head(imp_df$inr)
+```
+
+### 1.7 Create observation ID variable
+
+```{r obs-id}
+imp_df$obs_id <- seq_len(nrow(imp_df))
+```
+
+### 1.8  Rename analytic variables
+
+```{r rename-analytic-variables}
+imp_df <- imp_df %>%
+    rename(
+      family_id = ab_g_stc__design_id__fam,
+      site_id = ab_g_dyn__design_site,
+      adhd_traits = mh_p_cbcl__synd__attn_sum,
+      internalising = mh_p_cbcl__synd__int_sum,
+      externalising = mh_p_cbcl__synd__ext_sum
+    )
+
+names(imp_df)
+```
+
+### 1.9 Check variable types
+
+```{r check-var-types}
+check_vars <- c(
+  "age",
+  "bmi",
+  "adhd_traits",
+  "internalising",
+  "externalising",
+  "menarche_status_p",
+  "breast_development_p",
+  "inr",
+  "ethnrace"
+)
+
+# Check class of these variables
+sapply(imp_df[check_vars], class)
+
+unique(imp_df$ethnrace)
+```
+
+## 2. Pre-analysis data checks
+
+### 2.1 Histograms of continous variables
+
+```{r histograms}
+# Quick histograms
+continuous_vars <- c(
+    "age",
+    "adhd_traits",
+    "internalising",
+    "externalising",
+    "inr",
+    "breast_development_p",
+    "bmi"
+)
+
+sapply(imp_df[continuous_vars], function(x) sum(!is.na(x)))
+
+continuous_vars[!continuous_vars %in% names(imp_df)]
+```
+
+### 2.2 Multicollinearity checks
+
+```{r multicollinearity}
+# Select continuous variables
+cont_data <- imp_df %>% dplyr::select(all_of(continuous_vars))
+
+# Compute correlation matrix (pairwise complete observations to handle any remaining NAs)
+cor_matrix <- cor(cont_data, use = "pairwise.complete.obs")
+
+# Print the correlation matrix
+print(cor_matrix)
+
+# Optional: visualize with corrplot
+corrplot::corrplot(cor_matrix, method = "color", type = "upper",
+                   tl.col = "black", tl.srt = 45, addCoef.col = "black",
+                   number.cex = 0.8)
+```
+
+### 2.3 Check cells for categorical interaction term
+
+```{r categorical-cells-interaction}
+with(
+  imp_df,
+  table(wave, adhd_status_life, menarche_status_p, useNA = "ifany")
+)
+
+with(
+  imp_df,
+  table(wave, adhd_status_pres, menarche_status_p, useNA = "ifany")
+)
+```
+
+### 2.4 Scaling
+
+```{r scaling}
+imp_df <- imp_df %>%
+  mutate(
+    across(
+      all_of(continuous_vars),
+      ~ (.x - mean(.x, na.rm = TRUE)) / (2 * sd(.x, na.rm = TRUE)),
+      .names = "{.col}_sc"
+    )
+  )
+
+# Spot checks
+mean(imp_df$inr_sc, na.rm = TRUE)
+sd(imp_df$inr_sc, na.rm = TRUE)
+mean(imp_df$age_sc, na.rm = TRUE)
+sd(imp_df$age_sc, na.rm = TRUE)
+mean(imp_df$breast_development_p_sc, na.rm = TRUE)
+sd(imp_df$breast_development_p_sc, na.rm = TRUE)
+summary(is.na(imp_df$breast_development_p_sc))
+mean(imp_df$bmi_sc, na.rm = TRUE)
+sd(imp_df$bmi_sc, na.rm = TRUE)
+```
+
+## 3. Save analytic df
+
+```{r export-analytic-df}
+write_csv(imp_df, "analytic_df.csv")
+```
+
+## 4. Wide analytic df
+
+```{r wide-analytic-df}
+# Pivot to wide format for longitudinal analyses
+imp_df_wide <- imp_df %>%
+  pivot_wider(
+    id_cols = participant_id,
+    names_from = wave,
+    names_glue = "{.value}_{wave}",
+    values_from = -c(participant_id, wave)
+  )
+```
+
+### 4.1 Rename wide analytic variables
+
+```{r rename-wide-vars}
+imp_df_wide <- imp_df_wide %>%
+  mutate(
+    family_id = family_id_wave_0,
+    site_id = site_id_wave_0,
+    ethnrace = ethnrace_wave_0,
+    adhd_status_life = adhd_status_life_wave_0,
+    adhd_status_pres = adhd_status_pres_wave_0
+  )
+```
+
+### 4.2 Wide variables scaling
+
+```{r wide-scaling}
+continuous_vars <- c(
+    "age_wave_2",
+    "adhd_traits_wave_0",
+    "adhd_traits_wave_2",
+    "internalising_wave_0",
+    "externalising_wave_0",
+    "inr_wave_0",
+    "breast_development_p_wave_2",
+    "bmi_wave_0"
+)
+
+imp_df_wide <- imp_df_wide %>%
+  mutate(
+    across(
+      all_of(continuous_vars),
+      ~ (.x - mean(.x, na.rm = TRUE)) / (2 * sd(.x, na.rm = TRUE)),
+      .names = "{.col}_sc"
+    )
+  )
+
+# Spot checks
+mean(imp_df_wide$inr_wave_0_sc, na.rm = TRUE)
+sd(imp_df_wide$inr_wave_0_sc, na.rm = TRUE)
+mean(imp_df_wide$age_wave_2_sc, na.rm = TRUE)
+sd(imp_df_wide$age_wave_2_sc, na.rm = TRUE)
+sum(is.na(imp_df_wide$breast_development_p_wave_2_sc))
+```
+
+## 5. Save wide analytic df
+
+```{r export-wide-analytic-df}
+write_csv(imp_df_wide, "analytic_df_wide.csv")
+```
+
+

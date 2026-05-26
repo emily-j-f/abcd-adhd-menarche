@@ -1,0 +1,1504 @@
+---
+title: "ABCD ADHD menarche processing all other variables (step 3)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+### Load libraries
+
+```{r load-libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(scales) 
+library(gt)
+```
+
+### Read saved raw dataframe and check
+
+```{r read-cleaned-df}
+adhd_menarche_clean <- read.csv("adhd_menarche_clean_menstat.csv")
+summary(unique(adhd_menarche_clean$participant_id))
+head(adhd_menarche_clean)
+colnames(adhd_menarche_clean)
+```
+
+## 1. Sample integrity checks
+
+### 1.1 Convert 777 and 999 to NA
+
+```{r convert-777-999}
+convert_vars <- c(
+  "ph_p_pds_001",
+  "ph_p_pds_002",
+  "ph_p_pds_003",
+  "ph_p_pds__f_001",
+  "ph_p_pds__f_002",
+  "ab_p_demo__income__hhold_001",
+  "ab_p_demo__income__hhold_001__v01",
+  "ab_p_demo_age",
+  "ph_y_anthr__weight_mean",
+  "ph_y_anthr__height_mean",
+  "ab_p_demo__roster_001",
+  "le_l_adi__addr1_wsum",
+  "ab_g_stc__cohort_ethnrace__leg",
+  "ab_g_dyn__design_site",
+  "ab_g_stc__design_id__fam"
+)
+
+# Convert 777 and 999 to NA
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    across(all_of(convert_vars), ~ na_if(., 777))
+  ) %>%
+  mutate(
+    across(all_of(convert_vars), ~ na_if(., 999))
+  )
+```
+
+### 1.2 Check sample size by wave
+
+```{r sample-by-wave}
+adhd_menarche_clean %>%
+  group_by(wave) %>%
+  mutate(N_total = n_distinct(participant_id)) %>%
+  ungroup() %>%
+  group_by(wave) %>%
+  summarize(n_participants = n_distinct(participant_id),
+            .groups = "drop")
+```
+
+### 1.3 Create household income variable
+
+```{r household-income}
+income_vars <- c(
+  "ab_p_demo__income__hhold_001",
+  "ab_p_demo__income__hhold_001__v01"
+)
+
+# Ensure numeric, then convert 777 and 999 to NA
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    across(all_of(income_vars), ~ na_if(., 777))
+  ) %>%
+  mutate(
+    across(all_of(income_vars), ~ na_if(., 999))
+  )
+
+# Merge dfs with baseline income and all other waves
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    household_income = coalesce(ab_p_demo__income__hhold_001, 
+                              ab_p_demo__income__hhold_001__v01))
+```
+
+### 1.4 Remove implausible roster values
+
+```{r remove-implausible-roster}
+unique_roster <- adhd_menarche_clean %>%
+  pull(ab_p_demo__roster_001) %>%
+  unique()
+
+print(unique_roster)
+
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    ab_p_demo__roster_001 = if_else(
+      ab_p_demo__roster_001 > 50,
+      NA_real_,
+      ab_p_demo__roster_001
+    )
+  )
+
+unique_roster_check <- adhd_menarche_clean %>%
+  pull(ab_p_demo__roster_001) %>%
+  unique()
+
+print(unique_roster_check)
+```
+
+### 1.5 Check missingness/implausible values in key grouping & demographic variables
+
+```{r key-variables-missing}
+key_demo_vars <- c(
+  "ab_p_demo_age",
+  "ph_y_anthr__weight_mean",
+  "ph_y_anthr__height_mean",
+  "household_income",
+  "ab_p_demo__roster_001",
+  "le_l_adi__addr1_wsum",
+  "ab_g_stc__cohort_ethnrace__leg",
+  "ab_g_dyn__design_site",
+  "ab_g_stc__design_id__fam"
+)
+
+adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarize(
+    n_total = n(),
+    across(
+      all_of(key_demo_vars),
+      list(
+        n_missing = ~sum(is.na(.)),
+        pct_missing = ~mean(is.na(.)) * 100
+      ),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  )
+
+sapply(
+  adhd_menarche_clean[, c(
+    "ab_p_demo_age",
+    "ph_y_anthr__weight_mean",
+    "ph_y_anthr__height_mean"
+  )],
+  function(x) range(x, na.rm = TRUE)
+)
+
+adhd_menarche_clean <- adhd_menarche_clean %>%
+    mutate(bmi = (ph_y_anthr__weight_mean / (ph_y_anthr__height_mean^2)) * 703)
+
+# Check where BMI <10
+adhd_menarche_clean %>%
+  filter(wave == "wave_0", bmi < 10) %>%
+  dplyr::select(participant_id,
+         ab_p_demo_age,
+         ph_y_anthr__weight_mean,
+         ph_y_anthr__height_mean,
+         bmi)
+```
+
+### 1.6 Remove implausible weight/height
+
+```{r remove-implausible-weight-height}
+# Implausible BMI appears to be due to weight being recorded as kg instead of lbs, so weight converted to NA for these
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    ph_y_anthr__weight_mean = if_else(
+      bmi < 10,
+      NA_real_,
+      ph_y_anthr__weight_mean
+    )
+  )
+```
+
+### 1.7 Coalesce age to address missingness
+
+```{r coalesce-age}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    age = coalesce(ab_p_demo_age, ab_g_dyn__visit_age, ph_p_pds_age, 
+                   ph_y_pds_age, mh_p_cbcl_age, ph_y_anthr_age,
+                   ph_p_meds_age)
+  )
+
+adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarize(
+    n_missing   = sum(is.na(age)),
+    pct_missing = mean(is.na(age)) * 100,
+    .groups = "drop"
+  )
+```
+
+### 1.8 Demographic summaries
+
+```{r demographic-summaries}
+continuous_demo_vars <- c(
+  "ab_p_demo_age",
+  "ph_y_anthr__weight_mean",
+  "ph_y_anthr__height_mean",
+  "le_l_adi__addr1_wsum",
+  "household_income",
+  "ab_p_demo__roster_001"
+)
+
+# Summary statistics by wave
+summary_stats_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    across(
+      all_of(continuous_demo_vars),
+      list(
+        mean   = ~ mean(.x, na.rm = TRUE),
+        sd     = ~ sd(.x, na.rm = TRUE),
+        min    = ~ min(.x, na.rm = TRUE),
+        max    = ~ max(.x, na.rm = TRUE)
+      ),
+      .names = "{col}_{fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(-wave,
+               names_to = c("variable", "statistic"),
+               names_sep = "_(?=[^_]+$)") %>%
+  pivot_wider(names_from = statistic, values_from = value) %>%
+  arrange(variable, wave)
+
+print(summary_stats_by_wave)
+
+# Histograms for each variable across waves
+for (var in continuous_demo_vars) {
+  p <- ggplot(adhd_menarche_clean, aes(x = .data[[var]])) +
+    geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+    facet_wrap(~ wave, scales = "free_y") +
+    labs(
+      x = var,
+      y = "Count",
+      title = paste("Distribution of", var, "by Wave")
+    )
+  
+  print(p)
+}
+```
+
+## 2. Measure-level data quality checks
+
+### 2.1 CBCL and NIHTB summaries
+
+```{r cbcl-nihtb-summaries}
+cbcl_vars <- c(
+  "mh_p_cbcl__synd__attn_sum",
+  "mh_p_cbcl__synd__int_sum",
+  "mh_p_cbcl__synd__ext_sum")
+
+summary_stats_by_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    across(
+      all_of(cbcl_vars),
+      list(
+        mean            = ~ mean(.x, na.rm = TRUE),
+        sd              = ~ sd(.x, na.rm = TRUE),
+        min             = ~ min(.x, na.rm = TRUE),
+        max             = ~ max(.x, na.rm = TRUE),
+        n_missing       = ~ sum(is.na(.x)),
+        percent_missing = ~ mean(is.na(.x)) * 100
+      ),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    -wave,
+    names_to = c("variable", "statistic"),
+    names_pattern = "(.+)_(mean|sd|min|max|n_missing|percent_missing)"
+  ) %>%
+  pivot_wider(
+    names_from = statistic,
+    values_from = value
+  ) %>%
+  arrange(variable, wave)
+
+print(summary_stats_by_wave)
+
+# Histograms for each variable across waves
+for (var in continuous_demo_vars) {
+  p <- ggplot(adhd_menarche_clean, aes(x = .data[[var]])) +
+    geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+    facet_wrap(~ wave, scales = "free_y") +
+    labs(
+      x = var,
+      y = "Count",
+      title = paste("Distribution of", var, "by Wave")
+    )
+  
+  print(p)
+}
+
+adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  summarise(
+    mean_score = mean(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
+    sd_score = sd(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
+    min_score = min(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
+    max_score = max(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
+    n_valid = sum(!is.na(nc_y_nihtb__comp__tot__agecor_score)),
+    n_missing = sum(is.na(nc_y_nihtb__comp__tot__agecor_score)),
+    pct_missing = mean(is.na(nc_y_nihtb__comp__tot__agecor_score)) * 100
+  )
+```
+
+### 2.2 PDS items summary
+
+```{r pds-summary}
+pds_items <- c(  
+  "ph_p_pds_001",
+  "ph_p_pds_002",
+  "ph_p_pds_003",
+  "ph_p_pds__f_001",
+  "ph_p_pds__f_002"
+  )
+
+# PDS items
+summary_stats <- adhd_menarche_clean %>%
+  pivot_longer(
+    cols = all_of(pds_items),
+    names_to = "item",
+    values_to = "value"
+  ) %>%
+  group_by(wave, item) %>%
+  summarise(
+    n_valid = sum(!is.na(value)),
+    n_missing = sum(is.na(value)),
+    pct_missing = 100 * mean(is.na(value)),
+
+    mean   = if (all(is.na(value))) NA_real_ else mean(value, na.rm = TRUE),
+    sd     = if (all(is.na(value))) NA_real_ else sd(value, na.rm = TRUE),
+    min    = if (all(is.na(value))) NA_real_ else min(value, na.rm = TRUE),
+    max    = if (all(is.na(value))) NA_real_ else max(value, na.rm = TRUE),
+
+    .groups = "drop"
+  )
+
+summary_stats
+```
+
+### 2.3 Create a breast development variable
+
+```{r breast-development}
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(breast_development_p =
+           as.numeric(ph_p_pds__f_001)
+  )
+
+head(adhd_menarche_clean$breast_development_p)
+```
+
+## 3. ADHD status variables
+
+```{r adhd-variables}
+# List of ADHD variables
+adhd_vars <- c(
+  "mh_p_ksads__adhd__past_dx",
+  "mh_p_ksads__adhd__pres_dx",
+  "mh_p_ksads__adhd__fullrem_dx",
+  "mh_p_ksads__adhd__partrem_dx",
+  "mh_p_ksads__adhd__unspec_dx",
+  "mh_p_ksads__adhd__oth_dx"
+)
+
+adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    across(
+      all_of(adhd_vars),
+      ~ sum(. == 1, na.rm = TRUE),
+      .names = "{.col}_n1"
+    ),
+    .groups = "drop"
+  )
+
+adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    across(
+      all_of(adhd_vars),
+      list(
+        n_555 = ~ sum(. == 555, na.rm = TRUE),
+        n_888 = ~ sum(. == 888, na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  )
+
+# Convert 888 and 555 to NA 
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    across(
+      all_of(adhd_vars),
+      ~ na_if(., 555)
+    )
+  ) %>%
+  mutate(
+    across(
+      all_of(adhd_vars),
+      ~ na_if(., 888)
+    )
+  )
+```
+
+### 3.1 ADHD status lifetime
+
+```{r adhd-lifetime}
+# Wave-level counts
+adhd_status_life_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  reframe(
+    n_flagged = sum(if_any(all_of(adhd_vars), ~ . == 1), na.rm = TRUE),
+    n_missing = sum(if_all(all_of(adhd_vars), ~ is.na(.))),
+    n_nonADHD = sum(
+      apply(across(all_of(adhd_vars)), 1, function(x) {
+        non_missing <- x[!is.na(x)]
+        length(non_missing) > 0 && all(non_missing == 0)
+      })
+    ),
+    n_participants = n_distinct(participant_id)
+  ) %>%
+  mutate(
+    pct_flagged = round(100 * n_flagged / n_participants, 1),
+    pct_nonADHD = round(100 * n_nonADHD / n_participants, 1),
+    pct_missing = round(100 * n_missing / n_participants, 1)
+  )
+
+# Create participant-level ADHD status (lifetime)
+adhd_status_life <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(adhd_vars)) %>%
+  group_by(participant_id) %>%
+  summarise(
+    adhd_status_life = case_when(
+      any(c_across(all_of(adhd_vars)) == 1, na.rm = TRUE) ~ 1L,
+      all(is.na(c_across(all_of(adhd_vars)))) ~ NA_integer_,
+      TRUE ~ 0L
+    ),
+    .groups = "drop"
+  )
+
+# Join variable back to main dataset
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(adhd_status_life, by = "participant_id")
+
+# View wave-level summary
+adhd_status_life_wave
+
+total_adhd_life_status <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, adhd_status_life) %>% 
+  distinct() %>%                          
+  summarize(
+    n_adhd = sum(adhd_status_life, na.rm = TRUE),
+    n_total = n(),
+    pct_adhd = round(100 * n_adhd / n_total, 1)
+  )
+
+total_adhd_life_status
+```
+
+### 3.2 Insufficient ADHD status lifetime data flag
+
+```{r ahdd-insufficient-flag}
+# Create participant-level flag
+adhd_insufficient_flag <- adhd_menarche_clean %>%
+  filter(adhd_status_life == 0) %>%
+  dplyr::select(participant_id, wave, all_of(adhd_vars)) %>%
+  group_by(participant_id, wave) %>%
+  reframe(
+    has_data = any(!is.na(c_across(all_of(adhd_vars))))
+  ) %>%
+  group_by(participant_id) %>%
+  reframe(
+    adhd_insufficient_flag = as.integer(sum(has_data) < 1)
+  )
+
+# Join participant flag back to main dataset if needed
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(adhd_insufficient_flag, by = "participant_id")
+
+# Total number with no ADHD data
+total_adhd_insufficient_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, adhd_insufficient_flag) %>% 
+  distinct() %>%                         
+  summarize(
+    n_adhd_insufficient = sum(adhd_insufficient_flag, na.rm = TRUE),
+    n_total = n(),
+    pct_adhd_insufficient = round(100 * n_adhd_insufficient / n_total, 1)
+  )
+
+total_adhd_insufficient_flag
+```
+
+### 3.3 ADHD status present
+
+```{r adhd-present}
+adhd_status_pres_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    n_flagged = sum(mh_p_ksads__adhd__pres_dx == 1, na.rm = TRUE),
+    n_missing = sum(is.na(mh_p_ksads__adhd__pres_dx)),
+    n_nonADHD = sum(mh_p_ksads__adhd__pres_dx == 0, na.rm = TRUE),
+    n_participants = n_distinct(participant_id),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    pct_flagged = round(100 * n_flagged / n_participants, 1),
+    pct_nonADHD = round(100 * n_nonADHD / n_participants, 1),
+    pct_missing = round(100 * n_missing / n_participants, 1)
+  )
+
+# View wave-level summary
+adhd_status_pres_wave
+
+adhd_status_pres <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, mh_p_ksads__adhd__pres_dx) %>%
+  group_by(participant_id) %>%
+  summarise(
+    adhd_status_pres = case_when(
+      any(mh_p_ksads__adhd__pres_dx == 1, na.rm = TRUE) ~ 1L,  
+      all(is.na(mh_p_ksads__adhd__pres_dx)) ~ NA_integer_,       
+      TRUE ~ 0L                                                  
+    ),
+    .groups = "drop"
+  )
+
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(adhd_status_pres, by = "participant_id")
+
+total_adhd_pres_status <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, adhd_status_pres) %>% 
+  distinct() %>%                          
+  summarize(
+    n_adhd = sum(adhd_status_pres, na.rm = TRUE),
+    n_total = n(),
+    pct_adhd = round(100 * n_adhd / n_total, 1)
+  )
+
+total_adhd_pres_status
+```
+
+## 4. Co-occurring conditions
+
+### 4.1 Co-occurring internalising conditions
+
+```{r cooccurring-internalising}
+# List of depression variables
+dep_vars <- c(
+  "mh_p_ksads__dep__mdd__past_dx",
+  "mh_p_ksads__dep__mdd__pres_dx",
+  "mh_p_ksads__dep__mdd__partrem_dx",
+  "mh_p_ksads__dep__pdd__past_dx",
+  "mh_p_ksads__dep__pdd__pres_dx",
+  "mh_p_ksads__dep__pdd__partrem_dx"
+)
+
+# Create participant-level flag
+depression <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(dep_vars)) %>%
+  group_by(participant_id) %>%
+  reframe(
+    depression = as.integer(any(c_across(all_of(dep_vars)) == 1, na.rm = TRUE))
+  )
+
+# Join back
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(depression, by = "participant_id")
+
+# Summary
+total_depression <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, depression) %>% 
+  distinct() %>%                          
+  summarize(
+    n_depression = sum(depression, na.rm = TRUE),
+    n_total = n(),
+    pct_depression = round(100 * n_depression / n_total, 1)
+  )
+
+total_depression
+
+# List of GAD variables
+gad_vars <- c(
+  "mh_p_ksads__gad__past_dx",
+  "mh_p_ksads__gad__pres_dx",
+  "mh_p_ksads__gad__oth__mindur__past_dx", 
+  "mh_p_ksads__gad__oth__mindur__pres_dx"
+)
+
+# Create participant-level flag
+gad <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(gad_vars)) %>%
+  group_by(participant_id) %>%
+  reframe(
+    gad = as.integer(any(c_across(all_of(gad_vars)) == 1, na.rm = TRUE))
+  )
+
+# Join back
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(gad, by = "participant_id")
+
+# Summary
+total_gad <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, gad) %>% 
+  distinct() %>%                          
+  summarize(
+    n_gad = sum(gad, na.rm = TRUE),
+    n_total = n(),
+    pct_gad = round(100 * n_gad / n_total, 1)
+  )
+
+total_gad
+```
+
+### 4.2 Co-occurring externalising conditions
+
+```{r cooccurring-externalising}
+# List of CD variables
+cd_vars <- c(
+  "mh_p_ksads__cond__onset__adoles__past_dx",
+  "mh_p_ksads__cond__onset__adoles__pres_dx",
+  "mh_p_ksads__cond__onset__chld__past_dx",
+  "mh_p_ksads__cond__onset__chld__pres_dx"
+)
+
+# Create participant-level flag
+cd <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(cd_vars)) %>%
+  group_by(participant_id) %>%
+  reframe(
+    cd = as.integer(any(c_across(all_of(cd_vars)) == 1, na.rm = TRUE))
+  )
+
+# Join back
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(cd, by = "participant_id")
+
+# Summary
+total_cd <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, cd) %>% 
+  distinct() %>%                          
+  summarize(
+    n_cd = sum(cd, na.rm = TRUE),
+    n_total = n(),
+    pct_cd = round(100 * n_cd / n_total, 1)
+  )
+
+total_cd
+
+# List of ODD variables
+odd_vars <- c(
+  "mh_p_ksads__odd__past_dx",
+  "mh_p_ksads__odd__pres_dx"
+)
+
+# Create participant-level flag
+odd <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(odd_vars)) %>%
+  group_by(participant_id) %>%
+  reframe(
+    odd = as.integer(any(c_across(all_of(odd_vars)) == 1, na.rm = TRUE))
+  )
+
+# Join back
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(odd, by = "participant_id")
+
+# Summary
+total_odd <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, odd) %>% 
+  distinct() %>%                          
+  summarize(
+    n_odd = sum(odd, na.rm = TRUE),
+    n_total = n(),
+    pct_odd= round(100 * n_odd / n_total, 1)
+  )
+
+total_odd
+```
+
+## 5. Exclusion flags
+
+### 5.1 Schizophrenia flag
+
+```{r schizophrenia-flag}
+# List of schizophrenia variables
+schizophrenia_vars <- c(
+  "mh_p_ksads__psych__schiz__pres_dx",
+  "mh_p_ksads__psych__schizaffct__pres_dx",
+  "mh_p_ksads__psych__schizform__pres_dx",
+  "mh_p_ksads__psych__schiz__oth__past_dx",
+  "mh_p_ksads__psych__schiz__oth__pres_dx"
+)
+
+# Create participant-level flag
+schizophrenia_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(schizophrenia_vars)) %>%
+  group_by(participant_id) %>% 
+  reframe( schizophrenia_flag = as.integer(any(across(all_of(schizophrenia_vars)) == 1)) )
+
+# Join participant flag back to main dataset if needed
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(schizophrenia_flag, by = "participant_id")
+
+# Wave-level counts
+schizophrenia_flag_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  reframe(
+    n_flagged = sum(if_any(all_of(schizophrenia_vars), ~ . == 1), na.rm = TRUE),
+    n_participants = n_distinct(participant_id)
+  ) %>%
+  mutate(
+    pct_flagged = round(100 * n_flagged / n_participants, 1)
+  )
+
+# View wave-level summary
+schizophrenia_flag_wave
+
+total_schizophrenia_flag <- schizophrenia_flag %>%
+  left_join(
+    adhd_menarche_clean %>% dplyr::select(participant_id) %>% dplyr::distinct(),
+    by = "participant_id"
+  ) %>%
+  summarize(
+    n_schizophrenia = sum(schizophrenia_flag, na.rm = TRUE),
+    n_total = n(),
+    pct_schizophrenia = round(100 * n_schizophrenia / n_total, 1)
+  )
+
+total_schizophrenia_flag
+```
+
+### 5.2 Bipolar flag
+
+```{r bipolar-flag}
+# List of bipolar variables
+bipolar_vars <- c(
+  "mh_p_ksads__bpd__bpd1__rcnt__manic__pres_dx",
+  "mh_p_ksads__bpd__bpd1__rcnt__manicmix__pres_dx",
+  "mh_p_ksads__bpd__bpd2__curdep__pres_dx",
+  "mh_p_ksads__bpd__bpd2__curdep__partrem_dx",
+  "mh_p_ksads__bpd__bpd2__curhypo__pres_dx",
+  "mh_p_ksads__bpd__bpd2__rcnt__hypo__pres_dx"
+)
+# Create participant-level flag
+bipolar_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(bipolar_vars)) %>%
+  group_by(participant_id) %>%
+  reframe(
+    bipolar_flag = as.integer(any(across(all_of(bipolar_vars)) == 1))
+  )
+
+# Join participant flag back to main dataset if needed
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(bipolar_flag, by = "participant_id")
+
+# Wave-level counts
+bipolar_flag_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  reframe(
+    n_flagged = sum(if_any(all_of(bipolar_vars), ~ . == 1), na.rm = TRUE),
+    n_participants = n_distinct(participant_id)
+  ) %>%
+  mutate(
+    pct_flagged = round(100 * n_flagged / n_participants, 1)
+  )
+
+# View wave-level summary
+bipolar_flag_wave
+
+total_bipolar_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, bipolar_flag) %>% 
+  distinct() %>%                          
+  summarize(
+    n_bipolar = sum(bipolar_flag, na.rm = TRUE),
+    n_total = n(),
+    pct_bipolar = round(100 * n_bipolar / n_total, 1)
+  )
+
+total_bipolar_flag
+```
+
+### 5.3 Tic flag
+
+```{r tic-flag}
+# List of tic variables
+tic_vars <- c(
+  "mh_p_ksads__tic__ts__pres_dx",
+  "mh_p_ksads__tic__ts__nosymp__rem_dx"
+)
+
+# Create participant-level flag
+tic_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, all_of(tic_vars)) %>%
+  group_by(participant_id) %>%
+  reframe(
+    tic_flag = as.integer(any(across(all_of(tic_vars)) == 1))
+  )
+
+# Join participant flag back to main dataset
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(tic_flag, by = "participant_id")
+
+# Wave-level counts
+tic_flag_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  reframe(
+    n_flagged = sum(if_any(all_of(tic_vars), ~ . == 1), na.rm = TRUE),
+    n_participants = n_distinct(participant_id)
+  ) %>%
+  mutate(
+    pct_flagged = round(100 * n_flagged / n_participants, 1)
+  )
+
+# View wave-level summary
+tic_flag_wave
+
+total_tic_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, tic_flag) %>% 
+  distinct() %>%                          
+  summarize(
+    n_tic = sum(tic_flag, na.rm = TRUE),
+    n_total = n(),
+    pct_tic = round(100 * n_tic / n_total, 1)
+  )
+
+total_tic_flag
+```
+
+### 5.4 TBI flag
+
+```{r tbi-flag}
+# Create participant-level TBI flag (worst injury = 4 or 5 at any wave)
+tbi_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, ph_p_otbi_tbiworst) %>%
+  group_by(participant_id) %>%
+  reframe(
+    tbi_flag = as.integer(any(ph_p_otbi_tbiworst %in% c(4, 5), na.rm = TRUE))
+  )
+
+# Join back to main dataset
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(tbi_flag, by = "participant_id")
+
+tbi_flag_wave <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  reframe(
+    n_flagged = sum(ph_p_otbi_tbiworst %in% c(4, 5), na.rm = TRUE),
+    n_participants = n_distinct(participant_id)
+  ) %>%
+  mutate(
+    pct_flagged = round(100 * n_flagged / n_participants, 2)
+  )
+
+tbi_flag_wave
+
+total_tbi_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, tbi_flag) %>%
+  distinct() %>%
+  summarize(
+    n_tbi = sum(tbi_flag, na.rm = TRUE),
+    n_total = n(),
+    pct_tbi = round(100 * n_tbi / n_total, 2)
+  )
+
+total_tbi_flag
+```
+
+### 5.5 Low NIHTB flag (>2D below mean baseline NITHB total)
+
+```{r nihtb-flag}
+# Flag participants with scores more than 2 SD below the mean
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  # calculate mean and SD
+  mutate(
+    nihtb_mean = mean(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
+    nihtb_sd   = sd(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE)
+  ) %>%
+  # create low-score flag: 1 = >2 SD below mean, 0 = otherwise
+  mutate(
+    nihtb_low_flag = ifelse(
+      nc_y_nihtb__comp__tot__agecor_score < (nihtb_mean - 2 * nihtb_sd),
+      1L,
+      0L
+    )
+  ) %>%
+  dplyr::select(-nihtb_mean, -nihtb_sd)
+
+# Participant-level summary
+total_nihtb_low_flag <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, nihtb_low_flag) %>%
+  distinct() %>%
+  summarise(
+    n_nihtb_low = sum(nihtb_low_flag, na.rm = TRUE),
+    n_total = n(),
+    pct_bihtb_low = round(100 * n_nihtb_low / n_total, 2)
+  )
+
+total_nihtb_low_flag
+```
+
+## 6. ADHD stimulant medication use variable
+
+### 6.1 Find stimulant medications recorded 
+
+```{r search-stimulants}
+# list of stimulant medications
+stimulants <- c(
+  # Methylphenidate-based
+  "methylphenidate",
+  "adhansia",
+  "aptensio",
+  "concerta",
+  "cotempla",
+  "daytrana",
+  "jornay",
+  "metadate",
+  "methylin",
+  "quillichew",
+  "quillivant",
+  "relexxii",
+  "ritalin",
+  "focalin",
+  "azstarys",
+  
+  # Amphetamine-based
+  "amphetamine",
+  "dextroamphetamine",
+  "adzenys",
+  "dyanavel",
+  "dexedrine",
+  "procentra",
+  "xelstrym",
+  "zenzedi",
+  "adderall",
+  "mydayis",
+  "evekeo",
+  "vyvanse",
+  "lisdexamfetamine",
+  
+  # Methamphetamine
+  "desoxyn"
+)
+
+# Get all medication columns
+med_cols <- grep("^ph_p_meds__rx__(label)_", names(adhd_menarche_clean), value = TRUE)
+
+# Identify unique stimulant medications in the dataset (case-insensitive)
+detected_stimulants <- unique(
+  unlist(
+    apply(
+      adhd_menarche_clean[, med_cols],
+      1,
+      function(row) {
+        row_lower <- tolower(row)  # Lowercase for case-insensitive matching
+        meds_found <- sapply(stimulants, function(med) {
+          grep(med, row_lower, fixed = TRUE, value = TRUE)
+        })
+        unlist(meds_found)
+      }
+    )
+  )
+)
+
+# Remove any empty strings from detected list
+detected_stimulants <- detected_stimulants[detected_stimulants != ""]
+
+# Print results
+print(detected_stimulants)
+```
+
+### 6.2 Create stimulant status variable
+
+```{r stimulant-flag}
+# Medication label columns
+med_label_cols <- grep("label", med_cols, value = TRUE)
+
+# Only use medication columns
+med_long <- adhd_menarche_clean %>%
+  dplyr::select(participant_id, wave, all_of(med_label_cols)) %>%
+  pivot_longer(
+    cols = all_of(med_label_cols),
+    names_to = "med_col",
+    values_to = "med_value"
+  ) %>%
+  filter(!is.na(med_value)) %>% 
+  mutate(
+    med_value_clean = tolower(trimws(gsub("[[:punct:]]", "", med_value)))
+  )
+
+med_long <- med_long %>%
+  mutate(
+    stimulant_status = as.integer(
+      sapply(med_value_clean, function(x) any(grepl(paste(stimulants, collapse = "|"), x)))
+    )
+  )
+
+# Create wave-level stimulant status (Y / N)
+stimulant_status_wave <- med_long %>%
+  group_by(participant_id, wave) %>%
+  summarise(
+    stimulant_status = if_else(any(stimulant_status == 1, na.rm = TRUE), "Y", "N"),
+    .groups = "drop"
+  )
+
+
+# Merge into main dataset
+adhd_menarche_clean %>%
+  left_join(stimulant_status_wave, by = c("participant_id", "wave")) %>%
+  glimpse()
+
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  left_join(stimulant_status_wave, by = c("participant_id", "wave")) %>%
+  mutate(
+    stimulant_status = if_else(is.na(stimulant_status), "N", stimulant_status)
+  )
+
+# Wave-level counts
+stimulant_status_wave_summary <- adhd_menarche_clean %>%
+  group_by(wave) %>%
+  summarise(
+    n_Y = sum(stimulant_status == "Y", na.rm = TRUE),
+    n_N = sum(stimulant_status == "N", na.rm = TRUE),
+    n_participants = n_distinct(participant_id),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    pct_Y = round(100 * n_Y / n_participants, 1)
+  )
+
+stimulant_status_wave_summary
+
+
+# Overall (person-level) summary
+total_stimulant_status <- adhd_menarche_clean %>%
+  select(participant_id, stimulant_status) %>%
+  distinct() %>%
+  summarize(
+    n_Y = sum(stimulant_status == "Y", na.rm = TRUE),
+    n_total = n(),
+    pct_Y = round(100 * n_Y / n_total, 2)
+  )
+
+total_stimulant_status
+```
+
+### 6.3 Cross tab ADHD flag with stimulant flag
+
+```{r crosstab-adhd-stimulants}
+# Cross-tabulate ADHD flag by stimulant medication flag
+adhd_life_stimulant_table <- adhd_menarche_clean %>%
+  group_by(adhd_status_life, stimulant_status) %>%
+  summarise(
+    n_participants = n_distinct(participant_id),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = stimulant_status,
+    values_from = n_participants,
+    names_prefix = "stimulant_",
+    values_fill = 0
+  ) %>%
+  mutate(
+    total = rowSums(across(starts_with("stimulant_")))
+  )
+
+adhd_life_stimulant_table
+
+# Cross-tabulate ADHD flag by stimulant medication flag
+adhd_pres_stimulant_table <- adhd_menarche_clean %>%
+  group_by(adhd_status_pres, stimulant_status) %>%
+  summarise(
+    n_participants = n_distinct(participant_id),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = stimulant_status,
+    values_from = n_participants,
+    names_prefix = "stimulant_",
+    values_fill = 0
+  ) %>%
+  mutate(
+    total = rowSums(across(starts_with("stimulant_")))
+  )
+
+adhd_pres_stimulant_table
+```
+
+## 7. Observed dataframe for descriptives and sensitivity analyses
+
+### 7.1 Apply exclusions
+
+```{r apply-exclusions}
+n_original <- length(unique(adhd_menarche_clean$participant_id))
+
+# Participant-level exclusions
+excluded_ids <- adhd_menarche_clean %>%
+  group_by(participant_id) %>%
+  summarise(
+    tic = any(tic_flag == 1, na.rm = TRUE),
+    tbi = any(tbi_flag == 1, na.rm = TRUE),
+    schizophrenia = any(schizophrenia_flag == 1, na.rm = TRUE),
+    bipolar = any(bipolar_flag == 1, na.rm = TRUE),
+    nihtb = any(nihtb_low_flag == 1, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Initialise remaining IDs (all participants at start)
+remaining_ids <- excluded_ids$participant_id
+
+# Initialise dataframe to track sequential exclusions
+exclusion_counts <- data.frame(
+  flag = character(),
+  n_excluded = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Function to apply exclusion and count
+exclude_flag <- function(flag_name, current_ids) {
+  to_exclude <- excluded_ids %>%
+    filter(participant_id %in% current_ids) %>%
+    filter(.data[[flag_name]] == TRUE) %>%
+    pull(participant_id)
+  
+  n_excl <- length(to_exclude)
+  
+  # Update exclusion counts
+  exclusion_counts <<- rbind(exclusion_counts,
+                             data.frame(flag = flag_name,
+                                        n_excluded = n_excl))
+  
+  # Return IDs that remain after exclusion
+  setdiff(current_ids, to_exclude)
+}
+
+# Apply exclusions sequentially
+remaining_ids <- exclude_flag("tic", remaining_ids)
+remaining_ids <- exclude_flag("tbi", remaining_ids)
+remaining_ids <- exclude_flag("schizophrenia", remaining_ids)
+remaining_ids <- exclude_flag("bipolar", remaining_ids)
+remaining_ids <- exclude_flag("nihtb", remaining_ids)
+
+# Final observed dataframe
+obs_df <- adhd_menarche_clean %>%
+  filter(participant_id %in% remaining_ids)
+
+n_obs <- length(unique(obs_df$participant_id))
+
+# Total excluded
+total_excluded <- n_original - n_obs
+
+# Print results
+print(exclusion_counts)
+cat("Total participants excluded:", total_excluded, "\n")
+cat("Total participants remaining:", length(unique(obs_df$participant_id)), "\n")
+```
+
+### 7.2 Create obs_df
+
+```{r obs-df}
+obs_vars <- c(
+  # IDs / basic info
+  "participant_id",
+  "wave",
+  
+  # Demographics
+  "ab_p_demo_age",
+  "ph_y_anthr__weight_mean",
+  "ph_y_anthr__height_mean",
+  "household_income",
+  "ab_p_demo__roster_001",
+  "le_l_adi__addr1_wsum",
+  "ab_g_stc__cohort_ethnrace__leg",
+  "ab_g_dyn__design_site",
+  "ab_g_stc__design_id__fam",
+  
+  # CBCL
+  "mh_p_cbcl__synd__attn_sum",
+  "mh_p_cbcl__synd__int_sum",
+  "mh_p_cbcl__synd__ext_sum",
+  
+  # Neurocognitive measures
+  "nc_y_nihtb__comp__tot__agecor_score",
+  
+  # PDS items
+  "ph_p_pds_001", "ph_p_pds_002", "ph_p_pds_003",
+  "ph_p_pds__f_001", "ph_p_pds__f_002", "ph_y_pds__f_002",
+  "breast_development_p", "menarche_status_p",
+  
+  # Clinical flags
+  "adhd_status_life",
+  "adhd_status_pres",
+  "depression",
+  "gad",
+  "cd",
+  "odd",
+  
+  # Medication / stimulant
+  "stimulant_status"
+)
+
+# Create imputation/analysis dataframe
+obs_df <- obs_df %>%
+  dplyr::select(all_of(obs_vars))
+```
+
+### 7.3 Recoded variables for obs df
+
+```{r obs-df-recoding}
+obs_df <- obs_df %>%
+  mutate(
+    adhd_status_life = factor(
+      adhd_status_life, 
+      levels = c(0, 1), 
+      labels = c("N", "Y")
+    ),
+    adhd_status_pres = factor(
+      adhd_status_pres, 
+      levels = c(0, 1), 
+      labels = c("N", "Y")
+    ),
+    ethnrace = factor(
+      ab_g_stc__cohort_ethnrace__leg,
+      levels = c(2, 1, 3, 4, 13),
+      labels = c(
+        "white_nh",
+        "hispanic",
+        "black_nh",
+        "asian",
+        "other"
+      )
+    )
+  )
+
+obs_df$ph_y_anthr__weight_mean <- as.numeric(obs_df$ph_y_anthr__weight_mean)
+obs_df$ph_y_anthr__height_mean <- as.numeric(obs_df$ph_y_anthr__height_mean)
+
+# Spot check
+head(obs_df$adhd_status_life)
+head(obs_df$adhd_status_pres)
+head(obs_df$ethnrace)
+head(obs_df$menarche_status_p)
+
+str(obs_df[, c(
+  "adhd_status_life",
+  "adhd_status_pres",
+  "menarche_status_p",
+  "ph_p_pds__f_001",
+  "ph_y_anthr__weight_mean"
+)])
+
+```
+
+### 7.4 Obs BMI
+
+```{r obs-bmi}
+obs_df <- obs_df %>%
+    mutate(bmi = (ph_y_anthr__weight_mean / (ph_y_anthr__height_mean^2)) * 703)
+
+head(obs_df$bmi)
+min(obs_df$bmi, na.rm = TRUE)
+max(obs_df$bmi, na.rm = TRUE)
+```
+
+### 7.5 Obs INR variable
+
+```{r obs-inr}
+US_poverty_thresholds <- read.csv("US_poverty_thresholds.csv")
+
+US_poverty_thresholds <- US_poverty_thresholds %>%
+  mutate(wave_people = paste0(wave, "_", people))
+
+income_mapping <- c(
+  2500,   # <$5,000
+  8500,   # $5,000–$11,999
+  14000,  # $12,000–$15,999
+  20500,  # $16,000–$24,999
+  30000,  # $25,000–$34,999
+  42500,  # $35,000–$49,999
+  62500,  # $50,000–$74,999
+  87500,  # $75,000–$99,999
+  150000, # $100,000–$199,999
+  300000  # $200,000+
+)
+
+obs_df <- obs_df %>%
+    mutate(
+      # Map ordinal income to midpoing
+      mean_income = income_mapping[household_income],
+
+      # Create merge key
+      wave_people = paste0(wave, "_", ab_p_demo__roster_001)
+    ) %>%
+
+    # Join poverty thresholds
+    left_join(US_poverty_thresholds, by = c("wave_people", "wave")) %>%
+
+    # Calculate Income-to-Needs Ratio
+    mutate(
+      inr = mean_income / poverty_threshold
+    )
+
+names(obs_df)
+head(obs_df$inr)
+```
+
+### 7.6  Rename analytic variables
+
+```{r rename-analytic-vars}
+obs_df <- obs_df %>%
+    rename(
+      age = ab_p_demo_age,
+      family_id = ab_g_stc__design_id__fam,
+      site_id = ab_g_dyn__design_site,
+      adhd_traits = mh_p_cbcl__synd__attn_sum,
+      internalising = mh_p_cbcl__synd__int_sum,
+      externalising = mh_p_cbcl__synd__ext_sum
+    )
+
+names(obs_df)
+```
+
+### 7.7 Check variable types
+
+```{r check-var-types}
+check_vars <- c(
+  "age",
+  "bmi",
+  "adhd_traits",
+  "internalising",
+  "externalising",
+  "menarche_status_p",
+  "breast_development_p",
+  "inr",
+  "ethnrace"
+)
+
+# Check class of these variables
+sapply(obs_df[check_vars], class)
+
+unique(obs_df$ethnrace)
+```
+
+### 7.8 Scaling
+
+```{r scaling-centring}
+continuous_vars <- c(
+    "age",
+    "inr",
+    "adhd_traits",
+    "breast_development_p"
+)
+
+obs_df <- obs_df %>%
+  mutate(
+    across(
+      all_of(continuous_vars),
+      ~ (.x - mean(.x, na.rm = TRUE)) / (2 * sd(.x, na.rm = TRUE)),
+      .names = "{.col}_sc"
+    )
+  )
+
+# Spot checks
+mean(obs_df$inr_sc, na.rm = TRUE)
+sd(obs_df$inr_sc, na.rm = TRUE)
+mean(obs_df$age_sc, na.rm = TRUE)
+sd(obs_df$age_sc, na.rm = TRUE)
+mean(obs_df$breast_development_p_sc, na.rm = TRUE)
+sd(obs_df$breast_development_p_sc, na.rm = TRUE)
+```
+
+### 7.9 Create wide version with scaling
+
+```{r wide-obs-df}
+obs_df_wide <- obs_df %>%
+  pivot_wider(
+    id_cols = participant_id,
+    names_from = wave,
+    names_glue = "{.value}_{wave}",
+    values_from = -c(participant_id, wave)
+  )
+
+obs_df_wide <- obs_df_wide %>%
+    rename(
+      family_id = family_id_wave_0,
+      site_id = site_id_wave_0,
+      ethnrace = ethnrace_wave_0,
+      adhd_status_life = adhd_status_life_wave_0
+    )
+  
+continuous_vars <- c(
+    "age_wave_2",
+    "adhd_traits_wave_0",
+    "adhd_traits_wave_2",
+    "internalising_wave_0",
+    "externalising_wave_0",
+    "inr_wave_0",
+    "breast_development_p_wave_2"
+)
+
+obs_df_wide <- obs_df_wide %>%
+  mutate(
+    across(
+      all_of(continuous_vars),
+      ~ (.x - mean(.x, na.rm = TRUE)) / (2 * sd(.x, na.rm = TRUE)),
+      .names = "{.col}_sc"
+    )
+  )
+
+# Spot checks
+mean(obs_df_wide$inr_wave_0_sc, na.rm = TRUE)
+sd(obs_df_wide$inr_wave_0_sc, na.rm = TRUE)
+mean(obs_df_wide$age_wave_2_sc, na.rm = TRUE)
+sd(obs_df_wide$age_wave_2_sc, na.rm = TRUE)
+```
+
+### 7.10 Export observed df for descriptives and sensitivity
+
+```{r export-obs-df}
+write_csv(obs_df, "obs_df.csv")
+
+write_csv(obs_df_wide, "obs_df_wide.csv")
+```
+
+## 8. Prepare df for imputation
+
+```{r imputation-df}
+# Vector of variables to include in imputation/analysis dataframe
+imputation_vars <- c(
+  # IDs / basic info
+  "participant_id",
+  "wave",
+  
+  # Demographics
+  "age",
+  "ph_y_anthr__weight_mean",
+  "ph_y_anthr__height_mean",
+  "household_income",
+  "ab_p_demo__roster_001",
+  "le_l_adi__addr1_wsum",
+  "ab_g_stc__cohort_ethnrace__leg",
+  "ab_g_dyn__design_site",
+  "ab_g_stc__design_id__fam",
+  
+  # CBCL
+  "mh_p_cbcl__synd__attn_sum",
+  "mh_p_cbcl__synd__ext_sum",
+  "mh_p_cbcl__synd__int_sum",
+  
+  # Neurocognitive measures
+  "nc_y_nihtb__comp__tot__agecor_score",
+  
+  # PDS items
+  "ph_p_pds_001", "ph_p_pds_002", "ph_p_pds_003",
+  "ph_p_pds__f_001", "ph_p_pds__f_002", 
+  "breast_development_p", "menarche_status_p",
+  "ph_y_pds_001", "ph_y_pds_002", "ph_y_pds_003",
+  "ph_y_pds__f_001", "ph_y_pds__f_002",
+  
+  # Clinical flags
+  "adhd_status_life",
+  "adhd_status_pres",
+  "schizophrenia_flag",
+  "bipolar_flag",
+  "tic_flag",
+  "tbi_flag",
+  "nihtb_low_flag",
+  
+  # Medication / stimulant
+  "stimulant_status"
+)
+
+# Create imputation/analysis dataframe
+imputation_df <- adhd_menarche_clean %>%
+  dplyr::select(all_of(imputation_vars))
+
+# Export to CSV
+write_csv(imputation_df, "imputation_df.csv")
+```
+
+

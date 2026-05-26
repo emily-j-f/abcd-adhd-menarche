@@ -1,0 +1,911 @@
+---
+title: "ABCD ADHD menarche processing menarche data (step 2)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+### Load libraries
+
+```{r load-libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+### Import raw df, check, rename
+
+```{r import}
+adhd_menarche_raw <- read.csv("adhd_menarche_raw.csv")
+
+head(adhd_menarche_raw)
+colnames(adhd_menarche_raw)
+
+adhd_menarche_clean_menstat <- adhd_menarche_raw
+```
+
+### Check for duplicates
+
+```{r check-duplicates}
+sum(duplicated(adhd_menarche_clean_menstat))
+
+# Identify participants with any duplicated eventname
+duplicates <- adhd_menarche_clean_menstat %>%
+  group_by(participant_id) %>%
+  filter(duplicated(session_id) | duplicated(session_id, fromLast = TRUE))
+
+# View the duplicated rows
+print(duplicates)
+```
+
+## 1. Prepare df for menarche processing
+
+### 1.1 Recode waves
+
+```{r recode-waves}
+adhd_menarche_clean_menstat <- adhd_menarche_clean_menstat %>%
+  filter(session_id %in% c("ses-00A",
+                           "ses-01A",
+                           "ses-02A",
+                           "ses-03A",
+                           "ses-04A")) %>%
+  mutate(wave = recode_factor(session_id,
+                              "ses-00A" = "wave_0",
+                              "ses-01A" = "wave_1",
+                              "ses-02A" = "wave_2",
+                              "ses-03A" = "wave_3",
+                              "ses-04A" = "wave_4"),
+         wave = factor(wave, levels = c("wave_0", "wave_1", "wave_2", "wave_3", "wave_4")))
+
+unique(adhd_menarche_clean_menstat$wave)
+```
+
+### 1.2 Select female participants
+
+```{r select-females}
+adhd_menarche_clean_menstat <- adhd_menarche_clean_menstat %>% filter(ab_g_stc__cohort_sex == 2)
+unique(adhd_menarche_clean_menstat$ab_g_stc__cohort_sex)
+
+summary(unique(adhd_menarche_clean_menstat$participant_id))
+```
+
+### 1.3 Recode menarche status
+
+```{r recode-menarche-status}
+# Count 777 and 999 by wave
+adhd_menarche_clean_menstat %>%
+  group_by(wave) %>%
+  summarise(
+    y_777 = sum(ph_y_pds__f_002 == 777, na.rm = TRUE),
+    y_999 = sum(ph_y_pds__f_002 == 999, na.rm = TRUE),
+    p_777 = sum(ph_p_pds__f_002 == 777, na.rm = TRUE),
+    p_999 = sum(ph_p_pds__f_002 == 999, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Create menarche status (self report) variable column 0 = N, 1 = Y, other values = NA
+adhd_menarche_clean_menstat <- adhd_menarche_clean_menstat %>%
+  mutate(menarche_status_y = dplyr::recode(as.character(ph_y_pds__f_002), 
+                                    `0` = "N", `1` = "Y",
+                                    .default = NA_character_))
+
+# Create menarche status (parent report) variable column 0 = N, 1 = Y, other values = NA
+adhd_menarche_clean_menstat <- adhd_menarche_clean_menstat %>%
+  mutate(menarche_status_p = dplyr::recode(as.character(ph_p_pds__f_002), 
+                                    `0` = "N", `1` = "Y",
+                                    .default = NA_character_))
+
+# Note that menarche status needs to remain as a character for cleaning code to work properly
+```
+
+### 1.4 Check female dataframe
+
+```{r check-df}
+str(adhd_menarche_clean_menstat)
+```
+
+### 1.5 Missing menarche status (parent) by wave
+
+```{r missing-menarche-status}
+# Count missing menarche status data by wave
+missing_menarche_by_wave <- adhd_menarche_clean_menstat %>%
+  group_by(wave) %>%
+  summarise(missing_menarche = sum(is.na(menarche_status_p)),
+            total = n(),
+            missing_percent = (missing_menarche / total) * 100)
+
+# Print the results
+print(missing_menarche_by_wave)
+
+# Create a bar graph for menarche status by wave
+ggplot(adhd_menarche_clean_menstat, aes(x = wave, fill = menarche_status_p)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Menarche Status by Wave",
+    x = "Wave",
+    y = "Count",
+    fill = "Menarche Status"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Y" = "lightblue", "N" = "salmon"))
+```
+
+## 2. Begin menarche status cleaning
+
+### 2.1 Identify participants with correctable menarche status
+
+This includes those with impossible changes in menarche status (going from post-menarche back to pre-menarche) and NAs that can be reasonably inferred.
+
+```{r impossible-menarche-change}
+# Identify participants with "Y" at one wave followed by "N" at any later wave
+inconsistent_menarche_status_p <- adhd_menarche_clean_menstat %>%
+  filter(wave != "wave_4") %>%
+  arrange(participant_id, wave) %>%
+  filter(!is.na(menarche_status_p)) %>%
+  group_by(participant_id) %>%
+  summarise(
+    has_Y_before_N = any(menarche_status_p == "Y" & lead(menarche_status_p) == "N"),
+    .groups = "drop"
+  ) %>%
+  filter(has_Y_before_N) %>%
+  dplyr::select(participant_id) %>%
+  distinct()
+
+# Print the result
+print(inconsistent_menarche_status_p)
+
+# Create vector with participant IDs
+inconsistent_menarche_participants <- inconsistent_menarche_status_p$participant_id
+```
+
+### 2.2 Visual inspection of inconsistent menarche status
+
+```{r visual-inspection-inconsistencies}
+# Create dataframe of of participants with inconsistent menarche status including subject ID, wave, age, parent & youth menarche status reports, and parent and youth age at menarche report  
+inconsistent_menarche_status_p_df <- adhd_menarche_clean_menstat %>%
+  filter(participant_id %in% inconsistent_menarche_status_p$participant_id) %>%
+  dplyr::select(participant_id, wave, ab_p_demo_age,
+                menarche_status_p,menarche_status_y, 
+                ph_p_pds__f_002__01, ph_y_pds__f_002__01) 
+
+# Export as csv to inspect
+write_csv(inconsistent_menarche_status_p_df, "inconsistent_menarche_status_p_df.csv")
+```
+
+### 2.3 Check for patterns
+
+Three patterns identified for inconsistent menarche status group:
+
+1)  Participants with N at baseline and YN elsewhere across waves. In all these cases, the N in YN appears to be incorrect.
+2)  Participants with Y at baseline followed by N at another wave. Comparison of youth reports and parent reports of status and age at menarche suggests these vary in whether baseline, wave 1, 2 or 3 is most likely incorrect
+
+### 2.4 Identify those with NA at baseline and N at wave 1
+
+```{r baseline-na-wave-1-n}
+# Identify participants where baseline = NA and wave 1 = N
+baseline_na_wave1_n <- adhd_menarche_clean_menstat %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  reframe(
+    baseline_status = menarche_status_p[wave == "wave_0"], 
+    wave1_status = menarche_status_p[wave == "wave_1"],
+    .groups = "drop"
+  ) %>%
+  filter(is.na(baseline_status) & wave1_status == "N")
+
+# View results
+print(baseline_na_wave1_n)
+
+# Create vector with participant ids
+baseline_na_participants <- baseline_na_wave1_n$participant_id
+```
+
+### 2.5 Identify N NA N and Y NA Y (sandwich NA status)
+
+```{r sandwich-na}
+# Collapse the sequences for each participant into a single string
+pattern_data <- adhd_menarche_clean_menstat %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants who have the exact "N_NA_N" or "Y_NA_Y" patterns
+sandwich_NA <- pattern_data %>%
+  filter(grepl("(?<=^|_)(N_NA_N|Y_NA_Y)(?=$|_)", pattern, perl = TRUE)) %>%
+  dplyr::select(participant_id, pattern)
+
+# Print the participants with the identified pattern
+print(sandwich_NA)
+
+# Create vector with only participant ids
+sandwich_NA_participants <- sandwich_NA$participant_id
+```
+
+### 2.6 Check unique patterns of sandwich NAs identified
+
+```{r sandwich-na-patterns}
+# Get unique sandwich patterns
+unique_sandwich_patterns <- sandwich_NA %>%
+  distinct(pattern)
+
+# Print unique sandwich patterns
+print(unique_sandwich_patterns)
+```
+
+### 2.7 Put all participants who can have menarche status corrected into a vector
+
+```{r list-participants-to-correct}
+# Combine all participant IDs into one vector
+participants_to_correct <- c(
+  sandwich_NA_participants, 
+  inconsistent_menarche_participants, 
+  baseline_na_participants
+  )
+
+# Check for duplicates
+sum(duplicated(participants_to_correct))
+```
+
+### 2.7 Remove duplicates from list
+
+```{r remove-duplicates-participants-to-correct}
+participants_to_correct <- unique(participants_to_correct)
+
+str(participants_to_correct)
+```
+
+### 2.8 Extract rows for participants with menarche status data to correct from main df
+
+```{r extract-participants-to-correct}
+# Extract data for participants needing corrections
+participants_to_correct_data <- adhd_menarche_clean_menstat %>%
+  filter(participant_id %in% participants_to_correct)
+
+# View extracted data
+str(participants_to_correct_data)
+
+# Check no. of participants to correct
+length(unique(participants_to_correct_data$participant_id))
+```
+
+## 3. Correction type allocation
+
+### 3.1 Create correction type variable
+
+```{r create-correction-type}
+# Create correction type variable so that each participant can be assigned this to avoid correcting more than once
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(correction_type = NA_character_)
+```
+
+### 3.2 Correction 1: Participants with N at baseline, YN elsewhere
+
+```{r correction-1}
+# Identify participants with "N" at baseline
+participants_with_N_baseline <- participants_to_correct_data %>%
+  filter(wave != "wave_4") %>%
+  filter(wave == "wave_0" & menarche_status_p == "N") %>%
+  pull(participant_id)
+
+# Check for a "Y" followed by an "N" in later waves
+correction_1_ids <- participants_to_correct_data %>%
+  filter(participant_id %in% participants_with_N_baseline) %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(
+    has_Y_before_N = any(menarche_status_p == "Y" & lead(menarche_status_p) == "N"),
+    .groups = "drop"
+  ) %>%
+  filter(has_Y_before_N) %>%
+  pull(participant_id)
+
+# Assign "correction_1" only to those participants
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(correction_type = ifelse(participant_id %in% correction_1_ids, "correction_1", correction_type))
+
+# Count unique participants who were assigned correction_1
+num_correction_1 <- participants_to_correct_data %>%
+  filter(correction_type == "correction_1") %>%
+  summarise(unique_subjects = n_distinct(participant_id)) %>%
+  pull(unique_subjects)
+
+# Print the count
+print(num_correction_1)
+
+View(
+  participants_to_correct_data %>%
+    filter(wave != "wave_4") %>%
+    filter(correction_type == "correction_1") %>%
+    mutate(wave_num = as.numeric(gsub("wave_", "", wave))) %>%
+    dplyr::select(participant_id, wave_num, menarche_status_p, correction_type) %>%
+    pivot_wider(
+      names_from = wave_num,
+      values_from = menarche_status_p,
+      names_sort = TRUE
+    ) %>%
+    dplyr::select(participant_id, correction_type, order(colnames(.)))
+)
+```
+
+### 3.3 Correction 2: Y at baseline, N at other waves
+
+```{r correction-2}
+# Identify participants with "Y" at baseline (wave_0)
+participants_with_Y_baseline <- participants_to_correct_data %>%
+  filter(wave == "wave_0" & menarche_status_p == "Y") %>%
+  pull(participant_id)
+
+# Check if they have "N" in any later wave
+correction_2_ids <- participants_to_correct_data %>%
+  filter(participant_id %in% participants_with_Y_baseline) %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(has_N_later = any(wave != "wave_0" & menarche_status_p == "N"), .groups = "drop") %>%
+  filter(has_N_later) %>%
+  pull(participant_id)
+
+# Assign "correction_2" to these participants
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(correction_type = ifelse(is.na(correction_type) & participant_id %in% correction_2_ids, "correction_2", correction_type))
+
+# Count unique participants who were assigned correction_2
+num_correction_2 <- participants_to_correct_data %>%
+  filter(correction_type == "correction_2") %>%
+  summarise(unique_subjects = n_distinct(participant_id)) %>%
+  pull(unique_subjects)
+
+# Print the count
+print(num_correction_2)
+
+View(participants_to_correct_data %>%
+    filter(correction_type == "correction_2") %>%
+    dplyr::select(participant_id, wave, menarche_status_p, correction_type) %>%
+    pivot_wider(
+      names_from = wave,
+      values_from = menarche_status_p
+    )
+)
+```
+
+### 3.3 Visual check of correction 2 participants
+
+```{r view-correction-2}
+correction_2_view <- participants_to_correct_data %>%
+  filter(participant_id %in% correction_2_ids) %>%
+  dplyr::select(participant_id, wave, menarche_status_p, menarche_status_y,
+        ph_p_pds__f_002__01, ph_y_pds__f_002__01, ab_p_demo_age, 
+        correction_type)
+
+write_csv(correction_2_view, "correction_2_view.csv")
+```
+
+### 3.4 Correction 3: NA at baseline and N at wave 1
+
+```{r correction-3}
+# Identify participants with NA at baseline (wave_0)
+participants_with_NA_baseline <- participants_to_correct_data %>%
+  filter(wave == "wave_0" & is.na(menarche_status_p)) %>%
+  pull(participant_id)
+
+# Check if they have "N" at wave 1
+correction_3_ids <- participants_to_correct_data %>%
+  filter(participant_id %in% participants_with_NA_baseline) %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(has_N_at_wave_1 = any(wave == "wave_1" & menarche_status_p == "N"), .groups = "drop") %>%
+  filter(has_N_at_wave_1) %>%
+  pull(participant_id)
+
+# Assign "correction_3" to these participants
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(correction_type = ifelse(is.na(correction_type) & participant_id %in% correction_3_ids, "correction_3", correction_type))
+
+# Count unique participants who were assigned correction_4
+num_correction_3 <- participants_to_correct_data %>%
+  filter(correction_type == "correction_3") %>%
+  summarise(unique_subjects = n_distinct(participant_id)) %>%
+  pull(unique_subjects)
+
+# Print the count
+print(num_correction_3)
+
+View(participants_to_correct_data %>%
+    filter(correction_type == "correction_2") %>%
+    dplyr::select(participant_id, wave, menarche_status_p, correction_type) %>%
+    pivot_wider(
+      names_from = wave,
+      values_from = menarche_status_p
+    )
+)
+```
+
+### 3.5 Correction 4: N NA N pattern
+
+```{r correction-4}
+# Collapse the menarche_status_p for each participant across waves
+pattern_data <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants with the pattern "N_NA_N"
+correction_4_ids <- pattern_data %>%
+  filter(grepl("(?<=^|_)N_NA_N(?=$|_)", pattern, perl = TRUE)) %>%
+  pull(participant_id)
+
+# Assign "correction_4" only to these participants (if no correction already exists)
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(correction_type = ifelse(is.na(correction_type) & participant_id %in% correction_4_ids, "correction_4", correction_type))
+
+# Count unique participants who were assigned correction_4
+num_correction_4 <- participants_to_correct_data %>%
+  filter(correction_type == "correction_4") %>%
+  summarise(unique_subjects = n_distinct(participant_id)) %>%
+  pull(unique_subjects)
+
+# Print the count
+print(num_correction_4)
+```
+
+### 3.6 Correction 5: Y NA Y
+
+```{r correction-5}
+# Collapse the menarche_status_p for each participant across waves
+pattern_data <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants with the pattern "Y_NA_Y"
+correction_5_ids <- pattern_data %>%
+  filter(grepl("(?<=^|_)Y_NA_Y(?=$|_)", pattern, perl = TRUE)) %>%
+  pull(participant_id)
+
+# Assign "correction_5" only to these participants (if no correction already exists)
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(correction_type = ifelse(is.na(correction_type) & participant_id %in% correction_5_ids, "correction_5", correction_type))
+
+# Count unique participants who were assigned correction_5
+num_correction_5 <- participants_to_correct_data %>%
+  filter(correction_type == "correction_5") %>%
+  summarise(unique_subjects = n_distinct(participant_id)) %>%
+  pull(unique_subjects)
+
+# Print the count
+print(num_correction_5)
+```
+
+### 3.7 Check number of participants with each correction type
+
+```{r correction-type-totals}
+participants_to_correct_data %>%
+  group_by(correction_type) %>%
+  summarise(unique_subjects = n_distinct(participant_id))
+```
+
+## 4. Apply corrections
+
+### 4.1 Apply Correction 1
+
+```{r apply-correction-1}
+# Where there is Y --> N, change N to Y
+participants_to_correct_data <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  mutate(
+    menarche_status_p = as.character(menarche_status_p),
+    menarche_status_p = {
+      status <- menarche_status_p
+      seen_y <- FALSE
+      
+      for (i in seq_along(status)) {
+        if (!is.na(status[i]) && status[i] == "Y") {
+          seen_y <- TRUE
+        }
+        if (seen_y && !is.na(status[i]) && status[i] == "N") {
+          status[i] <- "Y"
+        }
+      }
+      status
+    }
+  ) %>%
+  ungroup()
+```
+
+### 4.2 Check correction 1 worked
+
+```{r check-correction-1}
+# Check for a "Y" followed by an "N" in later waves, only for correction_1 participants
+correction_1_check <- participants_to_correct_data %>%
+  filter(correction_type == "correction_1") %>%
+  arrange(participant_id, wave) %>% 
+  group_by(participant_id) %>%
+  summarise(
+    has_Y_before_N = any(menarche_status_p == "Y" & lead(menarche_status_p) == "N"),
+    .groups = "drop"
+  ) %>%
+  filter(has_Y_before_N) %>%
+  pull(participant_id)
+
+# Count how many participants still have the "Y N" pattern after correction
+print(length(correction_1_check))
+```
+
+### 4.3 Apply Correction 2
+
+```{r apply-correction-2}
+# Apply individual corrections to menarche_status_p based on participant ID and wave
+participants_to_correct_data <- participants_to_correct_data %>%
+  mutate(menarche_status_p = case_when(
+    participant_id %in% c("sub-BU31791C", 
+                          "sub-DETP7ENE", 
+                          "sub-GE3NT7ZK") & wave == "wave_0" ~ "N",
+    participant_id %in% c("sub-0HL5D3DF", 
+                          "sub-L48MK0DM") & wave == "wave_1" ~ "Y",
+    participant_id %in% c("sub-1CYTVBWT", 
+                          "sub-Z1WNHT63") & wave == "wave_2" ~ "Y",
+    participant_id == "sub-B8G9KFMC" & wave %in% c("wave_0", "wave_1") ~ "Y",
+    participant_id %in% c("sub-ECM7TBEL", 
+                          "sub-LG5EUWL6", 
+                          "sub-WMM5T2PL") & wave == "wave_3" ~ "Y",
+    
+    TRUE ~ menarche_status_p
+  ))
+
+# Print the modified rows to check the changes
+View(participants_to_correct_data %>%
+  filter(participant_id %in% c(
+    "sub-0HL5D3DF", "sub-L48MK0DM",
+    "sub-1CYTVBWT", "sub-Z1WNHT63",
+    "sub-B8G9KFMC",
+    "sub-BU31791C", "sub-DETP7ENE", "sub-GE3NT7ZK",
+    "sub-ECM7TBEL", "sub-LG5EUWL6", "sub-WMM5T2PL",
+    "sub-7VG73XLG", "sub-VVDFELL0"
+  )) %>%
+    dplyr::select(participant_id, wave, menarche_status_p) %>%
+    pivot_wider(
+      names_from = wave,
+      values_from = menarche_status_p
+    )
+)
+```
+
+### 4.4 Check Correction 2 worked
+
+```{r check-correction-2}
+# Identify participants with "Y" at baseline (wave_0)
+participants_with_Y_baseline_check <- participants_to_correct_data %>%
+  filter(wave == "wave_0" & menarche_status_p == "Y") %>%
+  pull(participant_id)
+
+# Check if they have "N" in any later wave
+correction_2_check <- participants_to_correct_data %>%
+  filter(participant_id %in% participants_with_Y_baseline_check) %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(has_N_later = any(wave != "wave_0" & menarche_status_p == "N"), .groups = "drop") %>%
+  filter(has_N_later) %>%
+  pull(participant_id)
+
+# Count unique participants with correction_2
+print(length(correction_2_check))
+```
+
+### 4.5 Apply Correction 3
+
+```{r apply-correction-3}
+# Correct baseline when baseline is NA and wave_1 is N, only for correction_3 participants
+participants_to_correct_data <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  mutate(
+    menarche_status_p = ifelse(
+      correction_type == "correction_3" & 
+      wave == "wave_0" & is.na(menarche_status_p) &
+      any(wave == "wave_1" & menarche_status_p == "N"),
+      "N",
+      menarche_status_p
+    )
+  ) %>%
+  ungroup()
+```
+
+### 4.6 Check Correction 3 worked
+
+```{r check-correction-3}
+# Identify participants who still have NA at baseline when wave_1 is N
+correction_3_check <- participants_to_correct_data %>%
+  filter(correction_type == "correction_4") %>% 
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(
+    still_na_at_baseline = any(wave == "wave_0" & is.na(menarche_status_p) &  
+                               any(wave == "wave_1" & menarche_status_p == "N")),
+    .groups = "drop"
+  ) %>%
+  filter(still_na_at_baseline) %>%
+  pull(participant_id)
+
+# Count the number of participants who still need correction
+print(length(correction_3_check))
+```
+
+### 4.7 Apply Correction 4
+
+```{r apply-correction-4}
+# Apply correction for "N_NA_N" pattern across waves for participants needing correction 4
+participants_to_correct_data <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  mutate(
+    menarche_status_p = case_when(
+      correction_type == "correction_4" &
+      is.na(menarche_status_p) &
+      lag(menarche_status_p, default = "X") == "N" &
+      lead(menarche_status_p, default = "X") == "N" ~ "N",
+      TRUE ~ menarche_status_p
+    )
+  ) %>%
+  ungroup()
+```
+
+### 4.8 Check Correction 4 worked
+
+```{r check-correction-4}
+# Collapse the sequences for each participant into a single string
+correction_4_check <- participants_to_correct_data %>%
+  filter(correction_type == "correction_4") %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants who have the exact "N_NA_N"
+correction_4_check <- correction_4_check %>%
+  filter(grepl("(?<=^|_)N_NA_N(?=$|_)", pattern, perl = TRUE)) %>%
+  pull(participant_id)
+
+# Print the number of participants who still have "N_NA_N"
+print(length(correction_4_check))
+```
+
+### 4.9 Apply Correction 5
+
+```{r apply-correction-5}
+# Apply correction for "Y_NA_Y" pattern across waves for participants needing correction 5
+participants_to_correct_data <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  mutate(
+    menarche_status_p = case_when(
+      correction_type == "correction_5" &
+      is.na(menarche_status_p) &
+      lag(menarche_status_p, default = "X") == "Y" &
+      lead(menarche_status_p, default = "X") == "Y" ~ "Y",
+      TRUE ~ menarche_status_p
+    )
+  ) %>%
+  ungroup()
+```
+
+### 4.10 Check Correction 5 worked
+
+```{r check-correction-5}
+# Collapse the sequences for each participant into a single string
+correction_5_check <- participants_to_correct_data %>%
+  filter(correction_type == "correction_5") %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants who have the exact subsequence "N_NA_N"
+correction_5_check <- correction_5_check %>%
+  filter(grepl("(?<=^|_)Y_NA_Y(?=$|_)", pattern, perl = TRUE)) %>%
+  pull(participant_id)
+
+# Print the number of participants who still have "N_NA_N"
+print(length(correction_5_check))
+```
+
+## 5. Check all original corrections fixed
+
+### 5.1 Check inconsistencies in menarche status
+
+```{r check-remaining-menarche-inconsistencies}
+# Check participants with inconsistent menarche status
+inconsistent_menarche_status_p_check <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  filter(!is.na(menarche_status_p)) %>%
+  group_by(participant_id) %>%
+  mutate(
+    prev_status = lag(menarche_status_p),
+    inconsistent = ifelse(
+      menarche_status_p == "N" & prev_status == "Y",
+      TRUE,
+      FALSE
+    )
+  ) %>%
+  ungroup() %>% 
+  filter(inconsistent == TRUE) %>%
+  dplyr::select(participant_id) %>%
+  distinct()
+
+# Display the result
+print(inconsistent_menarche_status_p_check)
+```
+
+### 5.2 Check those with NA at baseline and N at wave 1
+
+```{r baseline-na-wave-1-n-check}
+# Check participants where baseline = NA and wave 1 = N
+baseline_na_wave1_n_check <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  reframe(
+    baseline_status = menarche_status_p[wave == "wave_0"], 
+    wave1_status = menarche_status_p[wave == "wave_1"]
+  ) %>%
+  filter(is.na(baseline_status) & wave1_status == "N")
+
+# View results
+print(baseline_na_wave1_n_check)
+```
+
+### 5.3 Check N NA N and Y NA Y (sandwich NA status)
+
+```{r check-sandwich-na}
+# Collapse the sequences for each participant into a single string
+pattern_data_check <- participants_to_correct_data %>%
+  arrange(participant_id, wave) %>% 
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants who have the exact "N_NA_N" or "Y_NA_Y" pattern
+sandwich_NA_check <- pattern_data_check %>%
+  filter(grepl("(?<=^|_)(N_NA_N|Y_NA_Y)(?=$|_)", pattern, perl = TRUE)) %>%
+  dplyr::select(participant_id, pattern)
+
+# Print the participants with the identified pattern
+print(sandwich_NA_check)
+```
+
+## 6. Return corrected participant to main df
+
+```{r return-corrected-participants}
+adhd_menarche_clean_menstat <- adhd_menarche_clean_menstat %>%
+  left_join(
+    participants_to_correct_data %>%
+      dplyr::select(participant_id, wave, menarche_status_p),
+    by = c("participant_id", "wave"),
+    suffix = c(".original", ".corrected")
+  ) %>%
+  mutate(
+    menarche_status_p = coalesce(menarche_status_p.corrected, as.character(menarche_status_p.original)),
+  ) %>%
+  dplyr::select(-menarche_status_p.original, -menarche_status_p.corrected)
+
+# Check the updated dataframe
+head(adhd_menarche_clean_menstat)
+```
+
+### 6.1 Check menarche status variable
+
+```{r check-menarche-status}
+head(adhd_menarche_clean_menstat$menarche_status_p)
+```
+
+### 6.2 Check inconsistencies in menarche status in main df
+
+```{r check-menarche-inconsistencies-main-df}
+# Check participants with inconsistent menarche status
+inconsistent_menarche_status_p_check_2 <- adhd_menarche_clean_menstat %>%
+  arrange(participant_id, wave) %>%
+  filter(!is.na(menarche_status_p)) %>%
+  group_by(participant_id) %>%
+  mutate(
+    prev_status = lag(menarche_status_p),
+    inconsistent = ifelse(
+      menarche_status_p == "N" & prev_status == "Y",
+      TRUE,
+      FALSE
+    )
+  ) %>%
+  ungroup() %>% 
+  filter(inconsistent == TRUE) %>%
+  dplyr::select(participant_id) %>%
+  distinct()
+
+# Display the result
+print(inconsistent_menarche_status_p_check_2)
+```
+
+### 6.4 Check those with NA at baseline and N at wave 1
+
+```{r baseline-na-wave-1-n-main-df}
+# Check participants where baseline = NA and wave 1 = N
+baseline_na_wave1_n_check_2 <- adhd_menarche_clean_menstat %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  reframe(
+    baseline_status = menarche_status_p[wave == "wave_0"], 
+    wave1_status = menarche_status_p[wave == "wave_1"],
+    .groups = "drop"
+  ) %>%
+  filter(is.na(baseline_status) & wave1_status == "N")
+
+# View results
+print(baseline_na_wave1_n_check)
+```
+
+### 6.5 Check N NA N and Y NA Y (sandwich NA status)
+
+```{r sandwich-na-main-df}
+# Collapse the sequences for each participant into a single string
+pattern_data_check_2 <- adhd_menarche_clean_menstat %>%
+  arrange(participant_id, wave) %>%
+  group_by(participant_id) %>%
+  summarise(pattern = paste(menarche_status_p, collapse = "_"), .groups = 'drop')
+
+# Identify participants who have the exact subsequence "N_NA_N" or "Y_NA_Y"
+sandwich_NA_check_2 <- pattern_data_check_2 %>%
+  filter(grepl("(?<=^|_)(N_NA_N|Y_NA_Y)(?=$|_)", pattern, perl = TRUE)) %>%
+  dplyr::select(participant_id, pattern)
+
+# Print the participants with the identified pattern
+print(sandwich_NA_check_2)
+```
+
+### 6.6 Duplicates checks of corrected data
+
+```{r check-duplicates}
+sum(duplicated(adhd_menarche_clean_menstat))
+
+# Identify participants with duplicated eventname
+duplicates_2 <- adhd_menarche_clean_menstat %>%
+  group_by(participant_id) %>%
+  filter(duplicated(wave) | duplicated(wave, fromLast = TRUE))
+
+# View the duplicated rows
+print(duplicates_2)
+```
+
+### 6.7 Check reduction in missing menarche status
+
+```{r final-check-menarche-missing}
+# Count missing menarche data by wave
+missing_menarche_by_wave_2 <- adhd_menarche_clean_menstat %>%
+  group_by(wave) %>%
+  summarise(missing_menarche = sum(is.na(menarche_status_p)),
+            total = n(),
+            missing_percent = (missing_menarche / total) * 100)
+
+# Print the results
+print(missing_menarche_by_wave_2)
+```
+
+### 6.8 Remove wave 4
+
+```{r remove-wave-4}
+adhd_menarche_clean_menstat <- adhd_menarche_clean_menstat %>%
+  filter(wave != "wave_4")
+```
+
+### 6.9 Final check of cleaned df
+
+```{r final-check-clean-df}
+head(adhd_menarche_clean_menstat)
+summary(unique(adhd_menarche_clean_menstat$participant_id))
+```
+
+## 7. Export copy of csv with clean menarche status (parent) data
+
+```{r export}
+write_csv(adhd_menarche_clean_menstat, "adhd_menarche_clean_menstat.csv")
+```
+
+
