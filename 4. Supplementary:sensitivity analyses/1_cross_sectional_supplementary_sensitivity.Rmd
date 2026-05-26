@@ -1,0 +1,1205 @@
+---
+title: "ABCD ADHD menarche cross-sectional sensitivity analyses"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Setup
+
+### Load libraries
+
+```{r libraries}
+library(tidyverse)
+library(ggplot2)
+library(mice)
+library(brms)
+library(posterior)
+library(bayestestR)
+library(emmeans)
+```
+
+### Import saved imputed dfs
+
+```{r import-data}
+analytic_df <- read_csv("analytic_df.csv")
+obs_df <- read_csv("obs_df.csv")
+```
+
+## Initial checks
+
+```{r initial-checks}
+summary(unique(obs_df$participant_id))
+summary(is.na(obs_df$breast_development_p_sc))
+length(obs_df)
+colnames(obs_df)
+```
+
+## 1. Pre model variable checks
+
+### 1.1 Convert to factors: subject ID, site ID, family ID, ethnicity, and menarche status
+
+```{r factors}
+obs_df <- obs_df %>%
+  mutate(across(c(participant_id, family_id, site_id, ethnrace, menarche_status_p, adhd_status_life), as.factor))
+
+# set white_nh as reference for enthorace
+obs_df$ethnrace <- relevel(obs_df$ethnrace, ref = "white_nh")
+levels(obs_df$ethnrace)
+```
+
+### 1.2 Convert to integers: all outcomes
+
+```{r outcomes-as-integers}
+obs_df <- obs_df %>%
+  mutate(across(c(adhd_traits, internalising, externalising), as.integer))
+```
+
+### 1.2 Create observation ID variable for observed dataset
+
+```{r obs id}
+obs_df$obs_id <- seq_len(nrow(obs_df))
+```
+
+### 1.3 Create baseline BMI variable across waves
+
+```{r baseline-bmi}
+analytic_df <- analytic_df %>%
+  group_by(participant_id) %>%
+  mutate(bmi_wave_0_sc =
+           min(if_else(wave == "wave_0", bmi_sc, NA), na.rm = TRUE)
+         )
+head(analytic_df$bmi_wave_0_sc)
+```
+
+### 1.4 Structure of dataframe
+
+```{r df-structure}
+str(obs_df)
+```
+
+## 2. Set up hypothesis formulas and prior
+
+```{r hypothesis-formulas}
+
+formula_2_adhd_pres <- bf(internalising ~ menarche_status_p * adhd_status_pres
+                + age_sc + ethnrace + inr_sc
+                + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                + (1 | obs_id)
+                )
+
+formula_2b_adhd_pres <- bf(internalising ~ breast_development_p_sc * adhd_status_pres
+                 + age_sc + ethnrace + inr_sc
+                 + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                 + (1 | obs_id)
+                 )
+
+formula_3_adhd_pres <- bf(externalising ~ menarche_status_p * adhd_status_pres
+                + age_sc + ethnrace + inr_sc
+                + (1 | participant_id) + (1 | family_id) + (1 | site_id) 
+                + (1| obs_id)
+                )
+
+formula_3b_adhd_pres <- bf(externalising ~ breast_development_p_sc * adhd_status_pres
+                 + age_sc + ethnrace + inr_sc 
+                 + (1 | participant_id) + (1 | family_id) + (1 | site_id) 
+                 + (1| obs_id)
+                 )
+
+formula_1b_obs <- bf(adhd_traits ~ breast_development_p_sc
+                  + age_sc + ethnrace + inr_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_4_obs <- bf(internalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_5_obs <- bf(externalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_1b_bmi <- bf(adhd_traits ~ breast_development_p_sc
+                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+formula_4_bmi <- bf(internalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_5_bmi <- bf(externalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_1b_stimulant <- bf(adhd_traits ~ breast_development_p_sc
+                  + age_sc + ethnrace + inr_sc + stimulant_status +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_4_stimulant <- bf(internalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + stimulant_status +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_5_stimulant <- bf(externalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + stimulant_status +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_1b_prior1 <- bf(adhd_traits ~ breast_development_p_sc
+                  + age_sc + ethnrace + inr_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_4_prior1 <- bf(internalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + 
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_5_prior1 <- bf(externalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + 
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+
+formula_1b_prior2 <- bf(adhd_traits ~ breast_development_p_sc
+                  + age_sc + ethnrace + inr_sc +
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_4_prior2 <- bf(internalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + 
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+formula_5_prior2 <- bf(externalising ~ menarche_status_p * adhd_traits_sc
+                  + age_sc + ethnrace + inr_sc + 
+                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  )
+
+# Set prior
+prior <- prior(normal(0, 1),class = "b")
+prior1 <- prior(normal(0, 0.25), class = "b")
+prior2 <- prior(normal(0, 010), class = "b")
+```
+
+### 2.1 Check default prior
+
+```{r default-prior}
+get_prior(
+  formula = formula_2_adhd_pres,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_2b_adhd_pres,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_3_adhd_pres,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_3b_adhd_pres,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_1b_obs,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_4_obs,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_5_obs,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_1b_bmi,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_4_bmi,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_5_bmi,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_1b_stimulant,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_4_stimulant,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_5_stimulant,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_1b_prior1,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_4_prior1,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_5_prior1,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_1b_prior2,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_4_prior2,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_5_prior2,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+```
+
+## 3. Run models
+
+### Model 2 ADHD Present
+
+```{r model-2-adhd-pres}
+fit_2_adhd_pres <- brm(
+  formula = formula_2_adhd_pres,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_2_adhd_pres, "fit_2_adhd_pres.rds")
+```
+
+### Model 2 ADHD Present Output
+
+```{r model-2-output-adhd-pres}
+# Model R2
+bayes_R2(fit_2_adhd_pres)
+
+# Model estimates
+print(fit_2_adhd_pres, digits = 3)
+```
+
+### Model 2 ADHD Present Diagnostics
+
+```{r model-2-diagnostics-adhd-pres}
+# Prior Summary
+prior_summary(fit_2_adhd_pres)
+
+# MCMC sampling diagnostics
+plot(fit_2_adhd_pres)
+
+# Posterior predictive checks
+pp_check(fit_2_adhd_pres, type = "bars", ndraws = 100)
+pp_check(fit_2_adhd_pres, type = "hist", ndraws = 10)
+pp_check(fit_2_adhd_pres, type = "error_hist")
+pp_check(fit_2_adhd_pres, type = "stat", stat = "mean")
+pp_check(fit_2_adhd_pres, type = "stat", stat = "sd")
+pp_check(fit_2_adhd_pres, type = "scatter_avg")
+```
+
+### Model 2B ADHD Present
+
+```{r model-2b-adhd-pres}
+fit_2b_adhd_pres <- brm(
+  formula = formula_2b_adhd_pres,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_2b_adhd_pres, "fit_2b_adhd_pres.rds")
+```
+
+### Model 2B Output
+
+```{r model-2b-output-adhd-pres}
+# Model R2
+bayes_R2(fit_2b_adhd_pres)
+
+# Model estimates
+print(fit_2b_adhd_pres, digits = 3)
+```
+
+### Model 2B Diagnostics
+
+```{r model-2b-diagnostics-adhd-pres}
+# Prior Summary
+prior_summary(fit_2b_adhd_pres)
+
+# Posterior Predictive Checks
+plot(fit_2b_adhd_pres, ask = FALSE)
+
+# PPC plots
+pp_check(fit_2b_adhd_pres, type = "bars", ndraws = 100)
+pp_check(fit_2b_adhd_pres, type = "hist", ndraws = 10)
+pp_check(fit_2b_adhd_pres, type = "error_hist")
+pp_check(fit_2b_adhd_pres, type = "stat", stat = "mean")
+pp_check(fit_2b_adhd_pres, type = "stat", stat = "sd")
+pp_check(fit_2b_adhd_pres, type = "scatter_avg")
+```
+
+### Model 3 ADHD Present
+
+```{r model-3-adhd-pres}
+fit_3_adhd_pres <- brm(
+  formula = formula_3_adhd_pres,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_3_adhd_pres, "fit_3_adhd_pres.rds") 
+```
+
+### Model 3 ADHD Present Output
+
+```{r model-3-output-adhd-pres}
+# Model R2
+bayes_R2(fit_3_adhd_pres)
+
+# Model estimates
+print(fit_3_adhd_pres, digits = 3)
+```
+
+### Model 3 ADHD Present Diagnostics
+
+```{r model-3-diagnostics-adhd-pres}
+# Prior Summary
+prior_summary(fit_3_adhd_pres)
+
+# Posterior Predictive Checks
+plot(fit_3_adhd_pres, ask = FALSE)
+
+# PPC plots
+pp_check(fit_3_adhd_pres, type = "bars", ndraws = 100)
+pp_check(fit_3_adhd_pres, type = "hist", ndraws = 10)
+pp_check(fit_3_adhd_pres, type = "error_hist")
+pp_check(fit_3_adhd_pres, type = "stat", stat = "mean")
+pp_check(fit_3_adhd_pres, type = "stat", stat = "sd")
+pp_check(fit_3_adhd_pres, type = "scatter_avg")
+```
+
+### Model 3B ADHD Present
+
+```{r model-3b-adhd-pres}
+fit_3b_adhd_pres <- brm(
+  formula = formula_3b_adhd_pres,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_3b_adhd_pres, "fit_3b_adhd_pres.rds")
+```
+
+### Model 3B Output
+
+```{r model-3b-output-adhd-pres}
+# Model R2
+bayes_R2(fit_3b_adhd_pres)
+
+# Model estimates
+print(fit_3b_adhd_pres, digits = 3)
+```
+
+### Model 3B ADHD Present Diagnostics
+
+```{r model-3b-diagnostics-adhd-pres}
+# Prior Summary
+prior_summary(fit_3b_adhd_pres)
+
+# Posterior Predictive Checks
+plot(fit_3b, ask = FALSE)
+
+# PPC plots
+pp_check(fit_3b_adhd_pres, type = "bars", ndraws = 100)
+pp_check(fit_3b_adhd_pres, type = "hist", ndraws = 10)
+pp_check(fit_3b_adhd_pres, type = "error_hist")
+pp_check(fit_3b_adhd_pres, type = "stat", stat = "mean")
+pp_check(fit_3b_adhd_pres, type = "stat", stat = "sd")
+pp_check(fit_3b_adhd_pres, type = "scatter_avg")
+```
+
+### Model 1B Observed
+
+```{r model-1b-obs}
+fit_1b_obs <- brm(
+  formula = formula_1b_obs,
+  data = obs_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_1b_obs, "fit_1b_obs.rds")
+```
+
+### Model 1B Observed Output
+
+```{r model-1b-ob-output}
+# Model R2
+bayes_R2(fit_1b_obs)
+
+# Model estimates
+print(fit_1b_obs, digits = 3)
+```
+
+### Model 1B Observed Diagnostics
+
+```{r model-1b-ob-diagnostics}
+# Prior Summary
+prior_summary(fit_1b_obs)
+
+# Posterior Predictive Checks
+plot(fit_1b_obs, ask = FALSE)
+
+# PPC plots
+pp_check(fit_1b_obs, type = "bars", ndraws = 100)
+pp_check(fit_1b_obs, type = "hist", ndraws = 10)
+pp_check(fit_1b_obs, type = "error_hist")
+pp_check(fit_1b_obs, type = "stat", stat = "mean")
+pp_check(fit_1b_obs, type = "stat", stat = "sd")
+pp_check(fit_1b_obs, type = "scatter_avg")
+```
+
+### Model 4 Observed
+
+```{r model-4-obs}
+fit_4_obs <- brm(
+  formula = formula_4_obs,
+  data = obs_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_4_obs, "fit_4_obs.rds")
+```
+
+### Model 4 Observed Output
+
+```{r model-4-obs-output}
+# Model R2
+bayes_R2(fit_4_obs)
+
+# Model estimates
+print(fit_4_obs, digits = 3)
+```
+
+### Model 4 Observed Diagnostics
+
+```{r model-4-obs-diagnostics}
+# Prior Summary
+prior_summary(fit_4_obs)
+
+# Posterior Predictive Checks
+plot(fit_4_obs, ask = FALSE)
+
+# PPC plots
+pp_check(fit_4_obs, type = "bars", ndraws = 100)
+pp_check(fit_4_obs, type = "hist", ndraws = 10)
+pp_check(fit_4_obs, type = "error_hist")
+pp_check(fit_4_obs, type = "stat", stat = "mean")
+pp_check(fit_4_obs, type = "stat", stat = "sd")
+pp_check(fit_4_obs, type = "scatter_avg")
+```
+
+### Model 5 Observed
+
+```{r model-5-obs}
+fit_5_obs <- brm(
+  formula = formula_5_obs,
+  data = obs_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_5_obs, "fit_5_obs.rds")
+```
+
+### Model 5 Observed Output
+
+```{r model-5-obs-output}
+# Model R2
+bayes_R2(fit_5_obs)
+
+# Model estimates
+print(fit_5_obs, digits = 3)
+```
+
+### Model 5 Observed Diagnostics
+
+```{r model-4-obs-diagnostics}
+# Prior Summary
+prior_summary(fit_5_obs)
+
+# Posterior Predictive Checks
+plot(fit_5_obs, ask = FALSE)
+
+# PPC plots
+pp_check(fit_5_obs, type = "bars", ndraws = 100)
+pp_check(fit_5_obs, type = "hist", ndraws = 10)
+pp_check(fit_5_obs, type = "error_hist")
+pp_check(fit_5_obs, type = "stat", stat = "mean")
+pp_check(fit_5_obs, type = "stat", stat = "sd")
+pp_check(fit_5_obs, type = "scatter_avg")
+```
+
+### Model 1B BMI
+
+```{r model-1b-bmi}
+fit_1b_bmi <- brm(
+  formula = formula_1b_bmi,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_1b_bmi, "fit_1b_bmi.rds")
+```
+
+### Model 1B BMI Output
+
+```{r model-1b-bmi-output}
+# Model R2
+bayes_R2(fit_1b_bmi)
+
+# Model estimates
+print(fit_1b_bmi, digits = 3)
+```
+
+### Model 1B BMI Diagnostics
+
+```{r model-1b-bmi-diagnostics}
+# Prior Summary
+prior_summary(fit_1b_bmi)
+
+# Posterior Predictive Checks
+plot(fit_1b_bmi, ask = FALSE)
+
+# PPC plots
+pp_check(fit_1b_bmi, type = "bars", ndraws = 100)
+pp_check(fit_1b_bmi, type = "hist", ndraws = 10)
+pp_check(fit_1b_bmi, type = "error_hist")
+pp_check(fit_1b_bmi, type = "stat", stat = "mean")
+pp_check(fit_1b_bmi, type = "stat", stat = "sd")
+pp_check(fit_1b_bmi, type = "scatter_avg")
+```
+
+### Model 4 BMI
+
+```{r model-4-bmi}
+fit_4_bmi <- brm(
+  formula = formula_4_bmi,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_4_bmi, "fit_4_bmi.rds")
+```
+
+### Model 4 BMI Output
+
+```{r model-4-bmi-output}
+# Model R2
+bayes_R2(fit_4_bmi)
+
+# Model estimates
+print(fit_4_bmi, digits = 3)
+```
+
+### Model 4 BMI Diagnostics
+
+```{r model-4-bmi-diagnostics}
+# Prior Summary
+prior_summary(fit_4_bmi)
+
+# Posterior Predictive Checks
+plot(fit_4_bmi, ask = FALSE)
+
+# PPC plots
+pp_check(fit_4_bmi, type = "bars", ndraws = 100)
+pp_check(fit_4_bmi, type = "hist", ndraws = 10)
+pp_check(fit_4_bmi, type = "error_hist")
+pp_check(fit_4_bmi, type = "stat", stat = "mean")
+pp_check(fit_4_bmi, type = "stat", stat = "sd")
+pp_check(fit_4_bmi, type = "scatter_avg")
+```
+
+### Model 5 BMI
+
+```{r model-5-bmi}
+fit_5_bmi <- brm(
+  formula = formula_5_bmi,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_5_bmi, "fit_5_bmi.rds")
+```
+
+### Model 5 BMI Output
+
+```{r model-5-bmi-output}
+# Model R2
+bayes_R2(fit_5_bmi)
+
+# Model estimates
+print(fit_5_bmi, digits = 3)
+```
+
+### Model 5 BMI Diagnostics
+
+```{r model-5-bmi-diagnostics}
+# Prior Summary
+prior_summary(fit_5_bmi)
+
+# Posterior Predictive Checks
+plot(fit_5_bmi, ask = FALSE)
+
+# PPC plots
+pp_check(fit_5_bmi, type = "bars", ndraws = 100)
+pp_check(fit_5_bmi, type = "hist", ndraws = 10)
+pp_check(fit_5_bmi, type = "error_hist")
+pp_check(fit_5_bmi, type = "stat", stat = "mean")
+pp_check(fit_5_bmi, type = "stat", stat = "sd")
+pp_check(fit_5_bmi, type = "scatter_avg")
+```
+
+### Model 1B Stimulant
+
+```{r model-1b-stimulant}
+fit_1b_stimulant <- brm(
+  formula = formula_1b_stimulant,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_1b_stimulant, "fit_1b_stimulant.rds")
+```
+
+### Model 1B Stimulant Output
+
+```{r model-1b--stimulant-output}
+# Model R2
+bayes_R2(fit_1b_stimulant)
+
+# Model estimates
+print(fit_1b_stimulant, digits = 3)
+```
+
+### Model 1B Stimulant Diagnostics
+
+```{r model-1b-stimulant-diagnostics}
+# Prior Summary
+prior_summary(fit_1b_stimulant)
+
+# Posterior Predictive Checks
+plot(fit_1b_stimulant, ask = FALSE)
+
+# PPC plots
+pp_check(fit_1b_stimulant, type = "bars", ndraws = 100)
+pp_check(fit_1b_stimulant, type = "hist", ndraws = 10)
+pp_check(fit_1b_stimulant, type = "error_hist")
+pp_check(fit_1b_stimulant, type = "stat", stat = "mean")
+pp_check(fit_1b_stimulant, type = "stat", stat = "sd")
+pp_check(fit_1b_stimulant, type = "scatter_avg")
+```
+
+### Model 4 Stimulant
+
+```{r model-4-stimulant}
+fit_4_stimulant <- brm(
+  formula = formula_4_stimulant,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_4_stimulant, "fit_4_stimulant.rds")
+```
+
+### Model 4 Stimulant Output
+
+```{r model-4-stimulant-output}
+# Model R2
+bayes_R2(fit_4_stimulant)
+
+# Model estimates
+print(fit_4_stimulant, digits = 3)
+```
+
+### Model 4 Stimulant Diagnostics
+
+```{r model-4-stimulant-diagnostics}
+# Prior Summary
+prior_summary(fit_4_stimulant)
+
+# Posterior Predictive Checks
+plot(fit_4_stimulant, ask = FALSE)
+
+# PPC plots
+pp_check(fit_4_stimulant, type = "bars", ndraws = 100)
+pp_check(fit_4_stimulant, type = "hist", ndraws = 10)
+pp_check(fit_4_stimulant, type = "error_hist")
+pp_check(fit_4_stimulant, type = "stat", stat = "mean")
+pp_check(fit_4_stimulant, type = "stat", stat = "sd")
+pp_check(fit_4_stimulant, type = "scatter_avg")
+```
+
+### Model 5 Stimulant
+
+```{r model-5-stimulant}
+fit_5_stimulant <- brm(
+  formula = formula_5_stimulant,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_5_stimulant, "fit_5_stimulant.rds")
+```
+
+### Model 5 Stimulant Output
+
+```{r model-5-stimulant-output}
+# Model R2
+bayes_R2(fit_5_stimulant)
+
+# Model estimates
+print(fit_5_stimulant, digits = 3)
+```
+
+### Model 5 Stimulant Diagnostics
+
+```{r model-5-stimulant-diagnostics}
+# Prior Summary
+prior_summary(fit_5_stimulant)
+
+# Posterior Predictive Checks
+plot(fit_5_stimulant, ask = FALSE)
+
+# PPC plots
+pp_check(fit_5_stimulant, type = "bars", ndraws = 100)
+pp_check(fit_5_stimulant, type = "hist", ndraws = 10)
+pp_check(fit_5_stimulant, type = "error_hist")
+pp_check(fit_5_stimulant, type = "stat", stat = "mean")
+pp_check(fit_5_stimulant, type = "stat", stat = "sd")
+pp_check(fit_5_stimulant, type = "scatter_avg")
+```
+
+### Model 1B Prior 1
+
+```{r model-1b-prior1}
+fit_1b_prior1 <- brm(
+  formula = formula_1b_prior1,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior1,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_1b_prior1, "fit_1b_prior1.rds")
+```
+
+### Model 1B Prior 1 Output
+
+```{r model-1b-prior1-output}
+# Model R2
+bayes_R2(fit_1b_prior1)
+
+# Model estimates
+print(fit_1b_prior1, digits = 3)
+```
+
+### Model 1B Prior 1 Diagnostics
+
+```{r model-1b-prior1-diagnostics}
+# Prior Summary
+prior_summary(fit_1b_prior1)
+
+# Posterior Predictive Checks
+plot(fit_1b_prior1, ask = FALSE)
+
+# PPC plots
+pp_check(fit_1b_prior1, type = "bars", ndraws = 100)
+pp_check(fit_1b_prior1, type = "hist", ndraws = 10)
+pp_check(fit_1b_prior1, type = "error_hist")
+pp_check(fit_1b_prior1, type = "stat", stat = "mean")
+pp_check(fit_1b_prior1, type = "stat", stat = "sd")
+pp_check(fit_1b_prior1, type = "scatter_avg")
+```
+
+### Model 4 Prior 1
+
+```{r model-4-prior1}
+fit_4_prior1 <- brm(
+  formula = formula_4_prior1,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_4_prior1, "fit_4_prior1.rds")
+```
+
+### Model 4 Prior 1 Output
+
+```{r model-4-prior1-output}
+# Model R2
+bayes_R2(fit_4_prior1)
+
+# Model estimates
+print(fit_4_prior1, digits = 3)
+```
+
+### Model 4 Prior 1 Diagnostics
+
+```{r model-4-prior1-diagnostics}
+# Prior Summary
+prior_summary(fit_4_prior1)
+
+# Posterior Predictive Checks
+plot(fit_4_prior1, ask = FALSE)
+
+# PPC plots
+pp_check(fit_4_prior1, type = "bars", ndraws = 100)
+pp_check(fit_4_prior1, type = "hist", ndraws = 10)
+pp_check(fit_4_prior1, type = "error_hist")
+pp_check(fit_4_prior1, type = "stat", stat = "mean")
+pp_check(fit_4_prior1, type = "stat", stat = "sd")
+pp_check(fit_4_prior1, type = "scatter_avg")
+```
+
+### Model 5 Prior 1
+
+```{r model-5-prior1}
+fit_5_prior1 <- brm(
+  formula = formula_5_prior1,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_5_prior1, "fit_5_prior1.rds")
+```
+
+### Model 5 Prior 1 Output
+
+```{r model-5-prior1-output}
+# Model R2
+bayes_R2(fit_5_prior1)
+
+# Model estimates
+print(fit_5_prior1, digits = 3)
+```
+
+### Model 5 Prior 1 Diagnostics
+
+```{r model-5-prior1-diagnostics}
+# Prior Summary
+prior_summary(fit_5_prior1)
+
+# Posterior Predictive Checks
+plot(fit_5_prior1, ask = FALSE)
+
+# PPC plots
+pp_check(fit_5_prior1, type = "bars", ndraws = 100)
+pp_check(fit_5_prior1, type = "hist", ndraws = 10)
+pp_check(fit_5_prior1, type = "error_hist")
+pp_check(fit_5_prior1, type = "stat", stat = "mean")
+pp_check(fit_5_prior1, type = "stat", stat = "sd")
+pp_check(fit_5_prior1, type = "scatter_avg")
+```
+
+### Model 1B Prior 2
+
+```{r model-1b-prior2}
+fit_1b_prior2 <- brm(
+  formula = formula_1b_prior2,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior2,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_1b_prior2, "fit_1b_prior2.rds")
+```
+
+### Model 1B Prior 2 Output
+
+```{r model-1b-prior2-output}
+# Model R2
+bayes_R2(fit_1b_prior2)
+
+# Model estimates
+print(fit_1b_prior2, digits = 3)
+```
+
+### Model 1B Prior 2 Diagnostics
+
+```{r model-1b-prior2-diagnostics}
+# Prior Summary
+prior_summary(fit_1b_prior2)
+
+# Posterior Predictive Checks
+plot(fit_1b_prior2, ask = FALSE)
+
+# PPC plots
+pp_check(fit_1b_prior2, type = "bars", ndraws = 100)
+pp_check(fit_1b_prior2, type = "hist", ndraws = 10)
+pp_check(fit_1b_prior2, type = "error_hist")
+pp_check(fit_1b_prior2, type = "stat", stat = "mean")
+pp_check(fit_1b_prior2, type = "stat", stat = "sd")
+pp_check(fit_1b_prior2, type = "scatter_avg")
+```
+
+### Model 4 Prior 2
+
+```{r model-4-prior2}
+fit_4_prior2 <- brm(
+  formula = formula_4_prior2,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_4_prior2, "fit_4_prior2.rds")
+```
+
+### Model 4 Prior 2 Output
+
+```{r model-4-prior2-output}
+# Model R2
+bayes_R2(fit_4_prior2)
+
+# Model estimates
+print(fit_4_prior2, digits = 3)
+```
+
+### Model 4 Prior 2 Diagnostics
+
+```{r model-4-prior2-diagnostics}
+# Prior Summary
+prior_summary(fit_4_prior2)
+
+# Posterior Predictive Checks
+plot(fit_4_prior2, ask = FALSE)
+
+# PPC plots
+pp_check(fit_4_prior2, type = "bars", ndraws = 100)
+pp_check(fit_4_prior2, type = "hist", ndraws = 10)
+pp_check(fit_4_prior2, type = "error_hist")
+pp_check(fit_4_prior2, type = "stat", stat = "mean")
+pp_check(fit_4_prior2, type = "stat", stat = "sd")
+pp_check(fit_4_prior2, type = "scatter_avg")
+```
+
+### Model 5 Prior 2
+
+```{r model-5-prior2}
+fit_5_prior2 <- brm(
+  formula = formula_5_prior2,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_5_prior2, "fit_5_prior2.rds")
+```
+
+### Model 5 Prior 2 Output
+
+```{r model-5-prior2-output}
+# Model R2
+bayes_R2(fit_5_prior2)
+
+# Model estimates
+print(fit_5_prior2, digits = 3)
+```
+
+### Model 5 Prior 2 Diagnostics
+
+```{r model-5-prior2-diagnostics}
+# Prior Summary
+prior_summary(fit_5_prior2)
+
+# Posterior Predictive Checks
+plot(fit_5_prior2, ask = FALSE)
+
+# PPC plots
+pp_check(fit_5_prior2, type = "bars", ndraws = 100)
+pp_check(fit_5_prior2, type = "hist", ndraws = 10)
+pp_check(fit_5_prior2, type = "error_hist")
+pp_check(fit_5_prior2, type = "stat", stat = "mean")
+pp_check(fit_5_prior2, type = "stat", stat = "sd")
+pp_check(fit_5_prior2, type = "scatter_avg")
+```
