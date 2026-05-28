@@ -485,36 +485,20 @@ total_adhd_life_status
 ### 3.2 Insufficient ADHD status lifetime data flag
 
 ```{r ahdd-insufficient-flag}
-# Create participant-level flag
-adhd_insufficient_flag <- adhd_menarche_clean %>%
-  filter(adhd_status_life == 0) %>%
-  dplyr::select(participant_id, wave, all_of(adhd_vars)) %>%
-  group_by(participant_id, wave) %>%
-  reframe(
-    has_data = any(!is.na(c_across(all_of(adhd_vars))))
-  ) %>%
+# Check participants never assigned to either group
+unassigned <- adhd_menarche_clean %>%
   group_by(participant_id) %>%
-  reframe(
-    adhd_insufficient_flag = as.integer(sum(has_data) < 1)
-  )
+  summarise(
+    all_na = all(is.na(adhd_status_life)),
+    any_na = any(is.na(adhd_status_life)),
+    n_na_waves = sum(is.na(adhd_status_life)),
+    .groups = "drop"
+  ) %>%
+  filter(any_na)
 
-# Join participant flag back to main dataset if needed
-adhd_menarche_clean <- adhd_menarche_clean %>%
-  left_join(adhd_insufficient_flag, by = "participant_id")
-
-# Total number with no ADHD data
-total_adhd_insufficient_flag <- adhd_menarche_clean %>%
-  dplyr::select(participant_id, adhd_insufficient_flag) %>% 
-  distinct() %>%                         
-  summarize(
-    n_adhd_insufficient = sum(adhd_insufficient_flag, na.rm = TRUE),
-    n_total = n(),
-    pct_adhd_insufficient = round(100 * n_adhd_insufficient / n_total, 1)
-  )
-
-total_adhd_insufficient_flag
+nrow(unassigned)  # how many participants have at least one NA wave
+unassigned %>% count(n_na_waves)  # how many waves are NA per participant
 ```
-
 ### 3.3 ADHD status present
 
 ```{r adhd-present}
