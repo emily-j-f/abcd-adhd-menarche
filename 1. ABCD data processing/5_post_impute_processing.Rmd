@@ -78,6 +78,19 @@ exclude_flag <- function(flag_name, current_ids) {
   setdiff(current_ids, to_exclude)
 }
 
+# Exclude participant with missing ethnrace first
+missing_ethnrace <- adhd_menarche_clean %>%
+  filter(participant_id %in% remaining_ids) %>%
+  filter(is.na(ab_g_stc__cohort_ethnrace__leg)) %>%
+  distinct(participant_id) %>%
+  pull(participant_id)
+
+exclusion_counts <- rbind(exclusion_counts,
+                          data.frame(flag = "missing_ethnrace",
+                                     n_excluded = length(missing_ethnrace)))
+
+remaining_ids <- setdiff(remaining_ids, missing_ethnrace)
+
 # Apply exclusions sequentially
 remaining_ids <- exclude_flag("tic", remaining_ids)
 remaining_ids <- exclude_flag("tbi", remaining_ids)
@@ -286,7 +299,7 @@ cor_matrix <- cor(cont_data, use = "pairwise.complete.obs")
 # Print the correlation matrix
 print(cor_matrix)
 
-# Optional: visualize with corrplot
+# Visualize with corrplot
 corrplot::corrplot(cor_matrix, method = "color", type = "upper",
                    tl.col = "black", tl.srt = 45, addCoef.col = "black",
                    number.cex = 0.8)
