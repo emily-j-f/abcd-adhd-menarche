@@ -11,3 +11,5 @@ Follow these steps to repeat the study:
 A codebook for all variables can be found [here](https://github.com/emily-j-f/abcd-adhd-menarche/tree/release-6.0/Codebook).
 
 PDF files of R outputs for main analyses and supplementary/sensitivity analyses can be found in their respective folders.
+
+DOI for this repository: [![DOI](https://zenodo.org/badge/1045872331.svg)](https://doi.org/10.5281/zenodo.21348585)
