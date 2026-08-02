@@ -1,0 +1,671 @@
+---
+title: "ABCD ADHD menarche cross-sectional analyses (no interaction term)"
+author: "Emily Friedel"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+### Load libraries
+
+```{r libraries}
+library(tidyverse)
+library(ggplot2)
+library(mice)
+library(brms)
+library(posterior)
+library(bayestestR)
+library(emmeans)
+library(purrr)
+```
+
+### Import saved imputed df
+
+```{r import-data}
+analytic_df <- read_csv("analytic_df.csv")
+```
+
+### Initial checks
+
+```{r initial-checks}
+summary(unique(analytic_df$participant_id))
+summary(is.na(analytic_df$breast_development_p_sc))
+length(analytic_df)
+colnames(analytic_df)
+```
+
+## 1. Pre model variable checks
+
+### 1.1 Convert to factors: subject ID, site ID, family ID, ethnicity, and menarche status
+
+```{r factors}
+analytic_df <- analytic_df %>%
+  mutate(across(c(participant_id, family_id, site_id, ethnrace, menarche_status_p, adhd_status_life), as.factor))
+
+# set white_nh as reference for enthrace
+analytic_df$ethnrace <- relevel(analytic_df$ethnrace, ref = "white_nh")
+levels(analytic_df$ethnrace)
+```
+
+### 1.2 Convert to integers: all outcomes
+
+```{r outcomes-as-integers}
+analytic_df <- analytic_df %>%
+  mutate(across(c(adhd_traits, internalising, externalising), as.integer))
+```
+
+### 1.3 Structure of dataframe
+
+```{r df-structure}
+str(analytic_df)
+```
+
+## 2. Set up hypothesis formulas and prior
+
+```{r hypothesis-formulas}
+# Formulas
+formula_2_nointeract <- bf(internalising ~ menarche_status_p + adhd_status_life
+                + age_sc + ethnrace + inr_sc
+                + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                + (1 | obs_id)
+                )
+
+formula_2b_nointeract <- bf(internalising ~ breast_development_p_sc + adhd_status_life
+                 + age_sc + ethnrace + inr_sc
+                 + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                 + (1 | obs_id)
+                 )
+
+formula_3_nointeract <- bf(externalising ~ menarche_status_p + adhd_status_life
+                + age_sc + ethnrace + inr_sc
+                + (1 | participant_id) + (1 | family_id) + (1 | site_id) 
+                + (1| obs_id)
+                )
+
+formula_3b_nointeract <- bf(externalising ~ breast_development_p_sc + adhd_status_life
+                 + age_sc + ethnrace + inr_sc 
+                 + (1 | participant_id) + (1 | family_id) + (1 | site_id) 
+                 + (1| obs_id)
+                 )
+
+formula_4b_nointeract <- bf(internalising ~ breast_development_p_sc + adhd_traits_sc
+                 + age_sc + ethnrace + inr_sc 
+                 + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                 + (1| obs_id)
+                 )
+
+formula_5b_nointeract <- bf(externalising ~ breast_development_p_sc + adhd_traits_sc
+                 + age_sc + ethnrace + inr_sc 
+                 + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                 + (1| obs_id)
+                 )
+
+
+# Set prior
+prior <- prior(normal(0, 1), class = "b")
+```
+
+### 2.1 Check default prior
+
+```{r default-prior}
+get_prior(
+  formula = formula_2_nointeract,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_2b_nointeract,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_3_nointeract,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_3b_nointeract,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_4b_nointeract,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+
+get_prior(
+  formula = formula_5b_nointeract,
+  data = analytic_df,
+  family = poisson(),
+  unique = TRUE
+)
+```
+
+## 3. Run models
+  
+### Model 2 No Interaction
+
+```{r model-2}
+fit_2_nointeract <- brm(
+  formula = formula_2_nointeract,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_2_nointeract, "fit_2_nointeract.rds")
+```
+
+### Model 2 Output
+
+```{r model-2-output}
+# Model R2
+bayes_R2(fit_2_nointeract)
+
+# Model estimates
+print(fit_2_nointeract, digits = 3)
+```
+
+### Model 2 Effects expressed as % change in expected outcome per 1-unit increase in original predictor scale
+
+```{r model-2-results}
+# Extract fixed effects
+fe <- as.data.frame(fixef(fit_2_nointeract)) |>
+  rownames_to_column("term")
+
+# Function to convert log estimates to %
+to_pct <- function(x) (exp(x) - 1) * 100
+
+# Pull terms and convert
+result_2_nointeract <- tibble(
+  Variable = c(
+    "Menarche (yes vs no)",
+    "ADHD (yes vs no)"
+  ),
+  
+  Estimate = round(c(
+    to_pct(fe$Estimate[fe$term == "menarche_status_pY"]),
+    to_pct(fe$Estimate[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Lower 95% CI` = round(c(
+    to_pct(fe$Q2.5[fe$term == "menarche_status_pY"]),
+    to_pct(fe$Q2.5[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Upper 95% CI` = round(c(
+    to_pct(fe$Q97.5[fe$term == "menarche_status_pY"]),
+    to_pct(fe$Q97.5[fe$term == "adhd_status_lifeY"])
+  ), 2)
+)
+
+# View
+result_2_nointeract
+```
+
+### Model 2 Diagnostics
+
+```{r model-2-diagnostics}
+# Prior Summary
+prior_summary(fit_2_nointeract)
+
+# MCMC sampling diagnostics
+plot(fit_2_nointeract)
+
+# Posterior predictive checks
+pp_check(fit_2_nointeract, type = "bars", ndraws = 100)
+pp_check(fit_2_nointeract, type = "hist", ndraws = 10)
+pp_check(fit_2_nointeract, type = "error_hist")
+pp_check(fit_2_nointeract, type = "stat", stat = "mean")
+pp_check(fit_2_nointeract, type = "stat", stat = "sd")
+pp_check(fit_2_nointeract, type = "scatter_avg")
+```
+
+### Model 2B
+
+```{r model-2b}
+fit_2b_nointeract <- brm(
+  formula = formula_2b_nointeract,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_2b_nointeract, "fit_2b_nointeract.rds")
+```
+
+### Model 2B Output
+
+```{r model-2b-output}
+# Model R2
+bayes_R2(fit_2b_nointeract)
+
+# Model estimates
+print(fit_2b_nointeract, digits = 3)
+```
+
+### Model 2B Effects expressed as % change in expected outcome per 1-unit increase in original predictor scale
+
+```{r model-2b-results}
+# Extract fixed effects
+fe <- as.data.frame(fixef(fit_2b_nointeract)) |>
+  rownames_to_column("term")
+
+# Function to convert log estimates to %
+to_pct <- function(x) (exp(x) - 1) * 100
+
+# SD of original breast development variable
+sd_bd <- sd(analytic_df$breast_development_p, na.rm = TRUE)
+
+# Build table
+result_2b_nointeract <- tibble(
+  Variable = c(
+    "Breast development (per 1-unit)",
+    "ADHD (yes vs no)"
+  ),
+  
+  Estimate = round(c(
+    (exp(fe$Estimate[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    to_pct(fe$Estimate[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Lower 95% CI` = round(c(
+    (exp(fe$Q2.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    to_pct(fe$Q2.5[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Upper 95% CI` = round(c(
+    (exp(fe$Q97.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    to_pct(fe$Q97.5[fe$term == "adhd_status_lifeY"])
+  ), 2)
+)
+
+# View
+result_2b_nointeract
+```
+
+### Model 2B Diagnostics
+
+```{r model-2b-diagnostics}
+# Prior Summary
+prior_summary(fit_2b_nointeract)
+
+# Posterior Predictive Checks
+plot(fit_2b_nointeract, ask = FALSE)
+
+# PPC plots
+pp_check(fit_2b_nointeract, type = "bars", ndraws = 100)
+pp_check(fit_2b_nointeract, type = "hist", ndraws = 10)
+pp_check(fit_2b_nointeract, type = "error_hist")
+pp_check(fit_2b_nointeract, type = "stat", stat = "mean")
+pp_check(fit_2b_nointeract, type = "stat", stat = "sd")
+pp_check(fit_2b_nointeract, type = "scatter_avg")
+```
+
+### Model 3
+
+```{r model-3}
+fit_3_nointeract <- brm(
+  formula = formula_3_nointeract,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_3_nointeract, "fit_3_nointeract.rds") 
+```
+
+### Model 3 Output
+
+```{r model-3-output}
+# Model R2
+bayes_R2(fit_3_nointeract)
+
+# Model estimates
+print(fit_3_nointeract, digits = 3)
+```
+
+### Model 3 Effects expressed as % change in expected outcome per 1-unit increase in original predictor scale
+
+```{r model-3-results}
+# Extract fixed effects
+fe <- as.data.frame(fixef(fit_3_nointeract)) |>
+  rownames_to_column("term")
+
+# Function to convert log estimates to %
+to_pct <- function(x) (exp(x) - 1) * 100
+
+# Pull terms and convert
+result_3_nointeract <- tibble(
+  Variable = c(
+    "Menarche (yes vs no)",
+    "ADHD (yes vs no)"
+  ),
+  
+  Estimate = round(c(
+    to_pct(fe$Estimate[fe$term == "menarche_status_pY"]),
+    to_pct(fe$Estimate[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Lower 95% CI` = round(c(
+    to_pct(fe$Q2.5[fe$term == "menarche_status_pY"]),
+    to_pct(fe$Q2.5[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Upper 95% CI` = round(c(
+    to_pct(fe$Q97.5[fe$term == "menarche_status_pY"]),
+    to_pct(fe$Q97.5[fe$term == "adhd_status_lifeY"])
+  ), 2)
+)
+
+# View
+result_3_nointeract
+```
+
+### Model 3 Diagnostics
+
+```{r model-3-diagnostics}
+# Prior Summary
+prior_summary(fit_3_nointeract)
+
+# Posterior Predictive Checks
+plot(fit_3_nointeract, ask = FALSE)
+
+# PPC plots
+pp_check(fit_3_nointeract, type = "bars", ndraws = 100)
+pp_check(fit_3_nointeract, type = "hist", ndraws = 10)
+pp_check(fit_3_nointeract, type = "error_hist")
+pp_check(fit_3_nointeract, type = "stat", stat = "mean")
+pp_check(fit_3_nointeract, type = "stat", stat = "sd")
+pp_check(fit_3_nointeract, type = "scatter_avg")
+```
+
+### Model 3B
+
+```{r model-3b}
+fit_3b_nointeract <- brm(
+  formula = formula_3b_nointeract,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_3b_nointeract, "fit_3b_nointeract.rds")
+```
+
+### Model 3B Output
+
+```{r model-3b-output}
+# Model R2
+bayes_R2(fit_3b_nointeract)
+
+# Model estimates
+print(fit_3b_nointeract, digits = 3)
+```
+
+### Model 3B Effects expressed as % change in expected outcome per 1-unit increase in original predictor scale
+
+```{r model-3b-results}
+# Extract fixed effects
+fe <- as.data.frame(fixef(fit_3b_nointeract)) |>
+  rownames_to_column("term")
+
+# Function to convert log estimates to %
+to_pct <- function(x) (exp(x) - 1) * 100
+
+# SD of original breast development variable
+sd_bd <- sd(analytic_df$breast_development_p, na.rm = TRUE)
+
+# Build table
+result_3b_nointeract <- tibble(
+  Variable = c(
+    "Breast development (per 1-unit)",
+    "ADHD (yes vs no)"
+  ),
+  
+  Estimate = round(c(
+    (exp(fe$Estimate[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    to_pct(fe$Estimate[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Lower 95% CI` = round(c(
+    (exp(fe$Q2.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    to_pct(fe$Q2.5[fe$term == "adhd_status_lifeY"])
+  ), 2),
+  
+  `Upper 95% CI` = round(c(
+    (exp(fe$Q97.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    to_pct(fe$Q97.5[fe$term == "adhd_status_lifeY"])
+  ), 2)
+)
+
+# View
+result_3b_nointeract
+```
+
+### Model 3B Diagnostics
+
+```{r model-3b-diagnostics}
+# Prior Summary
+prior_summary(fit_3b_nointeract)
+
+# Posterior Predictive Checks
+plot(fit_3b_nointeract, ask = FALSE)
+
+# PPC plots
+pp_check(fit_3b_nointeract, type = "bars", ndraws = 100)
+pp_check(fit_3b_nointeract, type = "hist", ndraws = 10)
+pp_check(fit_3b_nointeract, type = "error_hist")
+pp_check(fit_3b_nointeract, type = "stat", stat = "mean")
+pp_check(fit_3b_nointeract, type = "stat", stat = "sd")
+pp_check(fit_3b_nointeract, type = "scatter_avg")
+```
+
+### Model 4B
+
+```{r model-4b}
+fit_4b_nointeract <- brm(
+  formula = formula_4b_nointeract,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 8000,
+  warmup = 4000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_4b_nointeract, "fit_4b_nointeract.rds")
+```
+
+### Model 4B Output
+
+```{r model-4b-output}
+# Model R2
+bayes_R2(fit_4b_nointeract)
+
+# Model estimates
+print(fit_4b_nointeract, digits = 3)
+```
+
+### Model 4B Effects expressed as % change in expected outcome per 1-unit increase in original predictor scale
+
+```{r model-4b-results}
+# Extract fixed effects
+fe <- as.data.frame(fixef(fit_4b_nointeract)) |>
+  rownames_to_column("term")
+
+# Convert log scale to %
+to_pct <- function(x) (exp(x) - 1) * 100
+
+# SDs of original variables
+sd_adhd <- sd(analytic_df$adhd_traits, na.rm = TRUE)
+sd_bd   <- sd(analytic_df$breast_development_p, na.rm = TRUE)
+
+# Build table
+result_4b_nointeract <- tibble(
+  Variable = c(
+    "Breast development (per 1-unit)",
+    "ADHD traits (per 1-unit)"
+  ),
+  
+  Estimate = round(c(
+    (exp(fe$Estimate[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    (exp(fe$Estimate[fe$term == "adhd_traits_sc"] / (2 * sd_adhd)) - 1) * 100
+  ), 2),
+  
+  `Lower 95% CI` = round(c(
+    (exp(fe$Q2.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    (exp(fe$Q2.5[fe$term == "adhd_traits_sc"] / (2 * sd_adhd)) - 1) * 100
+  ), 2),
+  
+  `Upper 95% CI` = round(c(
+    (exp(fe$Q97.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    (exp(fe$Q97.5[fe$term == "adhd_traits_sc"] / (2 * sd_adhd)) - 1) * 100
+  ), 2)
+)
+
+# View
+result_4b_nointeract
+```
+
+### Model 4B Diagnostics
+
+```{r model-4b-diagnostics}
+# Prior Summary
+prior_summary(fit_4b_nointeract)
+
+# Posterior Predictive Checks
+plot(fit_4b_nointeract, ask = FALSE)
+
+# PPC plots
+pp_check(fit_4b_nointeract, type = "bars", ndraws = 100)
+pp_check(fit_4b_nointeract, type = "hist", ndraws = 10)
+pp_check(fit_4b_nointeract, type = "error_hist")
+pp_check(fit_4b_nointeract, type = "stat", stat = "mean")
+pp_check(fit_4b_nointeract, type = "stat", stat = "sd")
+pp_check(fit_4b_nointeract, type = "scatter_avg")
+```
+
+### Model 5B
+
+```{r model-5b}
+fit_5b_nointeract <- brm(
+  formula = formula_5b_nointeract,
+  data = analytic_df,
+  family = poisson(),  
+  prior = prior,
+  chains = 2,            
+  iter = 4000,
+  warmup = 2000,
+  cores = 2,
+  seed = 1234
+)
+
+saveRDS(fit_5b_nointeract, "fit_5b_nointeract.rds")
+```
+
+### Model 5B output
+
+```{r model-5b-output}
+# Model R2
+bayes_R2(fit_5b_nointeract)
+
+# Model estimates
+print(fit_5b_nointeract, digits = 3)
+```
+
+### Model 5B Effects expressed as % change in expected outcome per 1-unit increase in original predictor scale
+
+```{r model-5b-results}
+# Extract fixed effects
+fe <- as.data.frame(fixef(fit_5b_nointeract)) |>
+  rownames_to_column("term")
+
+# Convert log scale to %
+to_pct <- function(x) (exp(x) - 1) * 100
+
+# SDs of original variables
+sd_adhd <- sd(analytic_df$adhd_traits, na.rm = TRUE)
+sd_bd   <- sd(analytic_df$breast_development_p, na.rm = TRUE)
+
+# Build table
+result_5b_nointeract <- tibble(
+  Variable = c(
+    "Breast development (per 1-unit)",
+    "ADHD traits (per 1-unit)"
+  ),
+  
+  Estimate = round(c(
+    (exp(fe$Estimate[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    (exp(fe$Estimate[fe$term == "adhd_traits_sc"] / (2 * sd_adhd)) - 1) * 100
+  ), 2),
+  
+  `Lower 95% CI` = round(c(
+    (exp(fe$Q2.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    (exp(fe$Q2.5[fe$term == "adhd_traits_sc"] / (2 * sd_adhd)) - 1) * 100
+  ), 2),
+  
+  `Upper 95% CI` = round(c(
+    (exp(fe$Q97.5[fe$term == "breast_development_p_sc"] / (2 * sd_bd)) - 1) * 100,
+    (exp(fe$Q97.5[fe$term == "adhd_traits_sc"] / (2 * sd_adhd)) - 1) * 100
+  ), 2)
+)
+
+# View
+result_5b_nointeract
+```
+
+### Model 5B Diagnostics
+
+```{r model-5b-diagnostics}
+# Prior Summary
+prior_summary(fit_5b_nointeract)
+
+# Posterior Predictive Checks
+plot(fit_5b_nointeract, ask = FALSE)
+
+# PPC plots
+pp_check(fit_5b_nointeract, type = "bars", ndraws = 100)
+pp_check(fit_5b_nointeract, type = "hist", ndraws = 10)
+pp_check(fit_5b_nointeract, type = "error_hist")
+pp_check(fit_5b_nointeract, type = "stat", stat = "mean")
+pp_check(fit_5b_nointeract, type = "stat", stat = "sd")
+pp_check(fit_5b_nointeract, type = "scatter_avg")
+```
