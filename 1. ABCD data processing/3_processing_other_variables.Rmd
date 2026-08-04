@@ -876,31 +876,39 @@ total_tbi_flag
 ### 5.5 Low NIHTB flag (>2D below mean baseline NITHB total)
 
 ```{r nihtb-flag}
-# Flag participants with scores more than 2 SD below the mean
-adhd_menarche_clean <- adhd_menarche_clean %>%
-  # calculate mean and SD
-  mutate(
-    nihtb_mean = mean(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
-    nihtb_sd   = sd(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE)
-  ) %>%
-  # create low-score flag: 1 = >2 SD below mean, 0 = otherwise
-  mutate(
-    nihtb_low_flag = ifelse(
-      nc_y_nihtb__comp__tot__agecor_score < (nihtb_mean - 2 * nihtb_sd),
-      1L,
-      0L
-    )
-  ) %>%
-  dplyr::select(-nihtb_mean, -nihtb_sd)
+### 5.5 Low NIHTB flag (>2SD below mean baseline NIHTB total)
 
-# Participant-level summary
+# Calculate mean and SD using baseline (wave_0) NIHTB scores only
+nihtb_baseline_stats <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
+  summarise(
+    nihtb_mean = mean(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE),
+    nihtb_sd = sd(nc_y_nihtb__comp__tot__agecor_score, na.rm = TRUE)
+  )
+
+nihtb_mean <- nihtb_baseline_stats$nihtb_mean
+nihtb_sd <- nihtb_baseline_stats$nihtb_sd
+
+# Create low-score flag: 1 = >2 SD below mean at baseline, 0 = otherwise
+# NA for non-baseline waves, since NIHTB total is only assessed at baseline
+adhd_menarche_clean <- adhd_menarche_clean %>%
+  mutate(
+    nihtb_low_flag = if_else(
+      wave == "wave_0",
+      as.integer(nc_y_nihtb__comp__tot__agecor_score < (nihtb_mean - 2 * nihtb_sd)),
+      NA_integer_
+    )
+  )
+
+# Participant-level summary (baseline only, since the flag is only defined there)
 total_nihtb_low_flag <- adhd_menarche_clean %>%
+  filter(wave == "wave_0") %>%
   dplyr::select(participant_id, nihtb_low_flag) %>%
   distinct() %>%
   summarise(
     n_nihtb_low = sum(nihtb_low_flag, na.rm = TRUE),
     n_total = n(),
-    pct_bihtb_low = round(100 * n_nihtb_low / n_total, 2)
+    pct_nihtb_low = round(100 * n_nihtb_low / n_total, 2)
   )
 
 total_nihtb_low_flag
