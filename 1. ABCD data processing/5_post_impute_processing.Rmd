@@ -79,7 +79,7 @@ exclude_flag <- function(flag_name, current_ids) {
 }
 
 # Exclude participant with missing ethnrace first
-missing_ethnrace <- adhd_menarche_clean %>%
+missing_ethnrace <- imp_df %>%
   filter(participant_id %in% remaining_ids) %>%
   filter(is.na(ab_g_stc__cohort_ethnrace__leg)) %>%
   distinct(participant_id) %>%
