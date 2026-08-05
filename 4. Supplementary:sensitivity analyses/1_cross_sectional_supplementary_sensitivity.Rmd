@@ -111,84 +111,100 @@ formula_3b_adhd_pres <- bf(externalising ~ breast_development_p_sc * adhd_status
                  )
 
 formula_1b_obs <- bf(adhd_traits ~ breast_development_p_sc
-                  + age_sc + ethnrace + inr_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_4_obs <- bf(internalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_5_obs <- bf(externalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_1b_bmi <- bf(adhd_traits ~ breast_development_p_sc
-                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
+
 formula_4_bmi <- bf(internalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_5_bmi <- bf(externalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc + bmi_wave_0_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_1b_stimulant <- bf(adhd_traits ~ breast_development_p_sc
-                  + age_sc + ethnrace + inr_sc + stimulant_status +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc + stimulant_status
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_4_stimulant <- bf(internalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + stimulant_status +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc + stimulant_status
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_5_stimulant <- bf(externalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + stimulant_status +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc + stimulant_status
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_1b_prior1 <- bf(adhd_traits ~ breast_development_p_sc
-                  + age_sc + ethnrace + inr_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_4_prior1 <- bf(internalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + 
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc 
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_5_prior1 <- bf(externalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + 
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc 
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 
 formula_1b_prior2 <- bf(adhd_traits ~ breast_development_p_sc
-                  + age_sc + ethnrace + inr_sc +
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_4_prior2 <- bf(internalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + 
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc 
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 formula_5_prior2 <- bf(externalising ~ menarche_status_p * adhd_traits_sc
-                  + age_sc + ethnrace + inr_sc + 
-                    (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + age_sc + ethnrace + inr_sc 
+                  + (1 | participant_id) + (1 | family_id) + (1 | site_id)
+                  + (1| obs_id)
                   )
 
 # Set prior
 prior <- prior(normal(0, 1),class = "b")
 prior1 <- prior(normal(0, 0.25), class = "b")
-prior2 <- prior(normal(0, 010), class = "b")
+prior2 <- prior(normal(0, 10), class = "b")
 ```
 
 ### 2.1 Check default prior
@@ -224,21 +240,21 @@ get_prior(
 
 get_prior(
   formula = formula_1b_obs,
-  data = analytic_df,
+  data = obs_df,
   family = poisson(),
   unique = TRUE
 )
 
 get_prior(
   formula = formula_4_obs,
-  data = analytic_df,
+  data = obs_df,
   family = poisson(),
   unique = TRUE
 )
 
 get_prior(
   formula = formula_5_obs,
-  data = analytic_df,
+  data = obs_df,
   family = poisson(),
   unique = TRUE
 )
@@ -394,7 +410,7 @@ fit_2b_adhd_pres <- brm(
 saveRDS(fit_2b_adhd_pres, "fit_2b_adhd_pres.rds")
 ```
 
-### Model 2B Output
+### Model 2B ADHD Present Output
 
 ```{r model-2b-output-adhd-pres}
 # Model R2
@@ -404,7 +420,7 @@ bayes_R2(fit_2b_adhd_pres)
 print(fit_2b_adhd_pres, digits = 3)
 ```
 
-### Model 2B Diagnostics
+### Model 2B ADHD Present Diagnostics
 
 ```{r model-2b-diagnostics-adhd-pres}
 # Prior Summary
@@ -486,7 +502,7 @@ fit_3b_adhd_pres <- brm(
 saveRDS(fit_3b_adhd_pres, "fit_3b_adhd_pres.rds")
 ```
 
-### Model 3B Output
+### Model 3B ADHD Present Output
 
 ```{r model-3b-output-adhd-pres}
 # Model R2
@@ -503,7 +519,7 @@ print(fit_3b_adhd_pres, digits = 3)
 prior_summary(fit_3b_adhd_pres)
 
 # Posterior Predictive Checks
-plot(fit_3b, ask = FALSE)
+plot(fit_3b_adhd_pres, ask = FALSE)
 
 # PPC plots
 pp_check(fit_3b_adhd_pres, type = "bars", ndraws = 100)
@@ -636,7 +652,7 @@ print(fit_5_obs, digits = 3)
 
 ### Model 5 Observed Diagnostics
 
-```{r model-4-obs-diagnostics}
+```{r model-5-obs-diagnostics}
 # Prior Summary
 prior_summary(fit_5_obs)
 
@@ -981,7 +997,7 @@ fit_4_prior1 <- brm(
   formula = formula_4_prior1,
   data = analytic_df,
   family = poisson(),  
-  prior = prior,
+  prior = prior1,
   chains = 2,            
   iter = 4000,
   warmup = 2000,
@@ -1027,7 +1043,7 @@ fit_5_prior1 <- brm(
   formula = formula_5_prior1,
   data = analytic_df,
   family = poisson(),  
-  prior = prior,
+  prior = prior1,
   chains = 2,            
   iter = 4000,
   warmup = 2000,
@@ -1119,7 +1135,7 @@ fit_4_prior2 <- brm(
   formula = formula_4_prior2,
   data = analytic_df,
   family = poisson(),  
-  prior = prior,
+  prior = prior2,
   chains = 2,            
   iter = 4000,
   warmup = 2000,
@@ -1165,7 +1181,7 @@ fit_5_prior2 <- brm(
   formula = formula_5_prior2,
   data = analytic_df,
   family = poisson(),  
-  prior = prior,
+  prior = prior2,
   chains = 2,            
   iter = 4000,
   warmup = 2000,
