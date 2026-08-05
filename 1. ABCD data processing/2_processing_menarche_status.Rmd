@@ -416,7 +416,7 @@ num_correction_3 <- participants_to_correct_data %>%
 print(num_correction_3)
 
 View(participants_to_correct_data %>%
-    filter(correction_type == "correction_2") %>%
+    filter(correction_type == "correction_3") %>%
     dplyr::select(participant_id, wave, menarche_status_p, correction_type) %>%
     pivot_wider(
       names_from = wave,
@@ -621,7 +621,7 @@ participants_to_correct_data <- participants_to_correct_data %>%
 ```{r check-correction-3}
 # Identify participants who still have NA at baseline when wave_1 is N
 correction_3_check <- participants_to_correct_data %>%
-  filter(correction_type == "correction_4") %>% 
+  filter(correction_type == "correction_3") %>% 
   arrange(participant_id, wave) %>%
   group_by(participant_id) %>%
   summarise(
