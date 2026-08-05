@@ -482,7 +482,7 @@ sd_bd <- sd(analytic_df$breast_development_p, na.rm = TRUE)
 result_2b <- tibble(
   Variable = c(
     "Breast development (per 1-unit) [ADHD = 0]",
-    "ADHD (yes vs no) [Breast development = 0]",
+    "ADHD (yes vs no) [Breast development = mean]",
     "Interaction (Breast development × ADHD)"
   ),
   
@@ -659,7 +659,7 @@ sd_bd <- sd(analytic_df$breast_development_p, na.rm = TRUE)
 result_3b <- tibble(
   Variable = c(
     "Breast development (per 1-unit) [ADHD = 0]",
-    "ADHD (yes vs no) [Breast development = 0]",
+    "ADHD (yes vs no) [Breast development = mean]",
     "Interaction (Breast development × ADHD)"
   ),
   
