@@ -45,17 +45,17 @@ colnames(obs_df)
 ### 1.1 Convert to factors: subject ID, site ID, family ID, ethnicity, and menarche status
 
 ```{r factors}
-analytic_df <- obs_df %>%
+analytic_df <- analytic_df %>%
   mutate(across(c(participant_id, family_id, site_id, ethnrace, menarche_status_p, adhd_status_life), as.factor))
 
-# set white_nh as reference for enthorace
-analytic_df$ethnrace <- relevel(obs_df$ethnrace, ref = "white_nh")
-levels(obs_df$ethnrace)
+# set white_nh as reference for enthrace
+analytic_df$ethnrace <- relevel(analytic_df$ethnrace, ref = "white_nh")
+levels(analytic_df$ethnrace)
 
 obs_df <- obs_df %>%
   mutate(across(c(participant_id, family_id, site_id, ethnrace, menarche_status_p, adhd_status_life), as.factor))
 
-# set white_nh as reference for enthorace
+# set white_nh as reference for enthrace
 obs_df$ethnrace <- relevel(obs_df$ethnrace, ref = "white_nh")
 levels(obs_df$ethnrace)
 ```
@@ -63,7 +63,7 @@ levels(obs_df$ethnrace)
 ### 1.2 Convert to integers: all outcomes
 
 ```{r outcomes-as-integers}
-analytic_df <- obs_df %>%
+analytic_df <- analytic_df %>%
   mutate(across(c(adhd_traits, internalising, externalising), as.integer))
 
 obs_df <- obs_df %>%
