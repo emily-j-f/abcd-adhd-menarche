@@ -55,8 +55,17 @@ levels(analytic_df$ethnrace)
 obs_df <- obs_df %>%
   mutate(across(c(participant_id, family_id, site_id, ethnrace, menarche_status_p, adhd_status_life), as.factor))
 
-# set white_nh as reference for enthrace
-obs_df$ethnrace <- relevel(obs_df$ethnrace, ref = "white_nh")
+# collapse "asian" into "other" for ethnrace
+obs_df$ethnrace <- forcats::fct_collapse(
+  obs_df$ethnrace,
+  other = c("asian", "other")
+)
+
+# order levels alphabetically, then set white_nh as reference
+obs_df$ethnrace <- forcats::fct_relevel(
+  obs_df$ethnrace,
+  "white_nh", "black_nh", "hispanic", "other"
+)
 levels(obs_df$ethnrace)
 ```
 
