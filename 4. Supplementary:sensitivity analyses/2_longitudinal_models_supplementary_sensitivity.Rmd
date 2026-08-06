@@ -70,8 +70,17 @@ obs_df_wide <- obs_df_wide %>%
     menarche_status_p_wave_2 = as.factor(menarche_status_p_wave_2),
     stimulant_status_wave_3 = as.factor(stimulant_status_wave_3)
   )
-# set white_nh as reference for enthrace
-obs_df_wide$ethnrace <- relevel(obs_df_wide$ethnrace, ref = "white_nh")
+# collapse "asian" into "other" for ethnrace
+obs_df_wide$ethnrace <- forcats::fct_collapse(
+  obs_df_wide$ethnrace,
+  other = c("asian", "other")
+)
+
+# order levels alphabetically, then set white_nh as reference
+obs_df_wide$ethnrace <- forcats::fct_relevel(
+  obs_df_wide$ethnrace,
+  "white_nh", "black_nh", "hispanic", "other"
+)
 levels(obs_df_wide$ethnrace)
 ```
 
