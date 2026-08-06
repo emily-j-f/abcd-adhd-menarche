@@ -36,14 +36,10 @@ obs_df_wide <- read_csv("obs_df_wide.csv")
 summary(unique(analytic_df_wide$participant_id))
 length(analytic_df_wide)
 colnames(analytic_df_wide)
-```
 
-```{r}
-summary(is.na(analytic_df_wide$breast_development_p_wave_2_sc))
-summary(is.na(analytic_df_wide$age_wave_2_sc))
-
-mean(analytic_df_wide$age_wave_2_sc, na.rm = TRUE)
-sd(analytic_df_wide$age_wave_2_sc, na.rm = TRUE)
+summary(unique(obs_df_wide$participant_id))
+length(obs_df_wide)
+colnames(obs_df_wide)
 ```
 
 ## 1. Pre model processing
@@ -57,13 +53,26 @@ analytic_df_wide <- analytic_df_wide %>%
     site_id = as.factor(site_id),
     ethnrace = as.factor(ethnrace),
     adhd_status_life = as.factor(adhd_status_life),
-    menarche_status_p_wave_2 <- as.factor(menarche_status_p_wave_2),
-    stimulant_status_wave_3 <- as.factor(stimulant_status_wave_3)
+    menarche_status_p_wave_2 = as.factor(menarche_status_p_wave_2),
+    stimulant_status_wave_3 = as.factor(stimulant_status_wave_3)
   )
 
-# set white_nh as reference for enthorace
+# set white_nh as reference for enthrace
 analytic_df_wide$ethnrace <- relevel(analytic_df_wide$ethnrace, ref = "white_nh")
 levels(analytic_df_wide$ethnrace)
+
+obs_df_wide <- obs_df_wide %>%
+  mutate(
+    family_id = as.factor(family_id),
+    site_id = as.factor(site_id),
+    ethnrace = as.factor(ethnrace),
+    adhd_status_life = as.factor(adhd_status_life),
+    menarche_status_p_wave_2 = as.factor(menarche_status_p_wave_2),
+    stimulant_status_wave_3 = as.factor(stimulant_status_wave_3)
+  )
+# set white_nh as reference for enthrace
+obs_df_wide$ethnrace <- relevel(obs_df_wide$ethnrace, ref = "white_nh")
+levels(obs_df_wide$ethnrace)
 ```
 
 ### Convert to integers: all outcomes
@@ -75,18 +84,27 @@ analytic_df_wide <- analytic_df_wide %>%
     internalising_wave_3 = as.integer(internalising_wave_3),
     externalising_wave_3 = as.integer(externalising_wave_3)
   )
+
+obs_df_wide <- obs_df_wide %>%
+  mutate(
+    adhd_traits_wave_3 = as.integer(adhd_traits_wave_3),
+    internalising_wave_3 = as.integer(internalising_wave_3),
+    externalising_wave_3 = as.integer(externalising_wave_3)
+  )
 ```
 
 ### Check head of wide dataframe
 
 ```{r check head wide df}
 head(analytic_df_wide)
+head(obs_df_wide)
 ```
 
 ### Check wide imputed df structure
 
 ```{r check structure wide df}
 str(analytic_df_wide)
+str(obs_df_wide)
 ```
 
 ## 2. Set up hypothesis formulas and prior
