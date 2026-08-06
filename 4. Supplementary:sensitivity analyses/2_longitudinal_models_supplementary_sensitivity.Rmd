@@ -583,6 +583,7 @@ fit_1_long_obs <- brm(
   chains = 2,            
   iter = 8000,
   warmup = 4000,
+  control = list(adapt_delta = 0.95),
   cores = 2,
   seed = 1234
 )
@@ -629,6 +630,7 @@ fit_1b_long_obs <- brm(
   chains = 2,            
   iter = 8000,
   warmup = 4000,
+  control = list(adapt_delta = 0.95),
   cores = 2,
   seed = 1234
 )
