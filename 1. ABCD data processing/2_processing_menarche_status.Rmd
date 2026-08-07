@@ -496,6 +496,7 @@ participants_to_correct_data %>%
 ```{r apply-correction-1}
 # Where there is Y --> N, change N to Y
 participants_to_correct_data <- participants_to_correct_data %>%
+  filter(correction_type == "correction_1") %>%
   arrange(participant_id, wave) %>%
   group_by(participant_id) %>%
   mutate(
