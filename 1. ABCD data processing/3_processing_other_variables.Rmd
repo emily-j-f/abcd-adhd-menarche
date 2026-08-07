@@ -1192,7 +1192,7 @@ obs_vars <- c(
   "wave",
   
   # Demographics
-  "ab_p_demo_age",
+  "age",
   "ph_y_anthr__weight_mean",
   "ph_y_anthr__height_mean",
   "household_income",
@@ -1337,7 +1337,6 @@ head(obs_df$inr)
 ```{r rename-analytic-vars}
 obs_df <- obs_df %>%
     rename(
-      age = ab_p_demo_age,
       family_id = ab_g_stc__design_id__fam,
       site_id = ab_g_dyn__design_site,
       adhd_traits = mh_p_cbcl__synd__attn_sum,
