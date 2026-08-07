@@ -676,6 +676,7 @@ fit_5b_long_obs <- brm(
   chains = 2,            
   iter = 4000,
   warmup = 2000,
+  control = list(adapt_delta = 0.95),
   cores = 2,
   seed = 1234
 )
