@@ -589,7 +589,7 @@ sd_bd <- sd(analytic_df_wide$breast_development_p_wave_2, na.rm = TRUE)
 result_2b_long <- tibble(
   Variable = c(
     "Breast development (Wave 2) [ADHD = 0]",
-    "ADHD Y [Breast development = 0]",
+    "ADHD Y [Breast development = mean]",
     "Breast development × ADHD"
   ),
   
@@ -768,7 +768,7 @@ sd_bd <- sd(analytic_df_wide$breast_development_p_wave_2, na.rm = TRUE)
 result_3b_long <- tibble(
   Variable = c(
     "Breast development (Wave 2) [ADHD = 0]",
-    "ADHD Y [Breast development = 0]",
+    "ADHD Y [Breast development = mean]",
     "Breast development × ADHD"
   ),
   
@@ -949,7 +949,7 @@ sd_bd   <- sd(analytic_df_wide$breast_development_p_wave_2, na.rm = TRUE)
 result_4b_long <- tibble(
   Variable = c(
     "Breast development (Wave 2) [ADHD traits = mean]",
-    "ADHD traits (Wave 2) [Breast development = 0]",
+    "ADHD traits (Wave 2) [Breast development = mean]",
     "Breast development × ADHD traits"
   ),
   
