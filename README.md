@@ -1,5 +1,5 @@
 # abcd-adhd-menarche
-These are all the R code files for a study investigating how menarche might be associated with changes in ADHD traits in the general adolescent population and whether it moderates mental health outcomes in adolescents with ADHD vs those without. Comparative analyses were also performed to see if effects differ between menarche and breast development. Data from the Adolescent Brain and Cognitive Development (ABCD) study release 5.1 were used for all analyses.
+These are all the R code files for a study investigating how menarche might be associated with changes in ADHD traits in the general adolescent population and whether it moderates mental health outcomes in adolescents with ADHD vs those without. Comparative analyses were also performed to see if effects differ between menarche and breast development. Data from the Adolescent Brain and Cognitive Development (ABCD) study release 6.0 were used for all analyses.
 
 Follow these steps to repeat the study:
 
