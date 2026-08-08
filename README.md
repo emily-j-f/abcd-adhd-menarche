@@ -14,5 +14,5 @@ PDF files of R outputs for main analyses and supplementary/sensitivity analyses 
 
 Final checks of code and any necessary fixes for the version 1.1.0 release of this repository were performed the week of 3 August 2026. Main findings/conclusions were unaffected. 
 
-DOI for this repository: [https://doi.org/10.5281/zenodo.21348585](https://doi.org/10.5281/zenodo.21348585)
+DOI for this repository: [https://doi.org/10.5281/zenodo.21845637](https://doi.org/10.5281/zenodo.21845637)
 
