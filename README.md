@@ -12,7 +12,7 @@ A codebook for all variables can be found [here](https://github.com/emily-j-f/ab
 
 PDF files of R outputs for main analyses and supplementary/sensitivity analyses can be found in their respective folders.
 
-Final checks of code and any necessary fixes for the version 1.1.0 release were performed the week of 3 August 2026. Main findings/conclusions were unaffected. 
+Final checks of code and any necessary fixes for the version 1.1.0 release of this repository were performed the week of 3 August 2026. Main findings/conclusions were unaffected. 
 
 DOI for this repository: [https://doi.org/10.5281/zenodo.21348585](https://doi.org/10.5281/zenodo.21348585)
 
